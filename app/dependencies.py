@@ -13,10 +13,11 @@ from functools import lru_cache
 from typing import Generator
 
 from dotenv import load_dotenv
-from supabase import create_client, Client
 from openai import AsyncOpenAI
+from supabase import Client, create_client
 
-# Load environment variables from .env if present
+from app.services.llm_service import LLMService
+
 load_dotenv()
 
 
@@ -59,6 +60,12 @@ def get_openai_client() -> AsyncOpenAI:
     return AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
 
 
+@lru_cache()
+def get_llm_service() -> LLMService:
+    """Create and cache the LLM service."""
+    return LLMService(client=get_openai_client())
+
+
 def supabase_dependency() -> Generator[Client, None, None]:
     """
     FastAPI dependency for Supabase client.
@@ -75,3 +82,10 @@ def openai_dependency() -> Generator[AsyncOpenAI, None, None]:
     FastAPI dependency for OpenAI client.
     """
     yield get_openai_client()
+
+
+def llm_service_dependency() -> Generator[LLMService, None, None]:
+    """
+    FastAPI dependency for LLM service.
+    """
+    yield get_llm_service()

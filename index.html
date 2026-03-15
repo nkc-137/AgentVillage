@@ -1419,6 +1419,11 @@ const H        = { 'apikey': APIKEY, 'Content-Type': 'application/json' };
 // ===== STREAM CHAT (optional — chat tab won't work without this) =====
 const STREAM_API_KEY = 'YOUR_STREAM_API_KEY';
 const BACKEND_URL = 'YOUR_BACKEND_URL';
+const AGENT_API_BASE =
+  window.AGENT_API_BASE ||
+  (window.location.origin && /^https?:/.test(window.location.origin)
+    ? window.location.origin
+    : 'http://127.0.0.1:8000');
 
 // --- Pure helpers ---
 
@@ -1491,6 +1496,16 @@ const getGuestId = () => {
   const key = 'sc_guest_id';
   let id = localStorage.getItem(key);
   if (!id) { id = crypto.randomUUID(); localStorage.setItem(key, id); }
+  return id;
+};
+
+const getFrontendUserId = () => {
+  const key = 'agent_village_user_id';
+  let id = localStorage.getItem(key);
+  if (!id) {
+    id = crypto.randomUUID();
+    localStorage.setItem(key, id);
+  }
   return id;
 };
 
@@ -2341,10 +2356,76 @@ async function trackActivity(type, actorAgent, recipientAgentId, metadata = {}) 
 // ===== DMs TAB =====
 function renderDmsTab() {
   const el = document.getElementById('dmsList');
-  el.innerHTML = '<div style="text-align:center;padding:48px 24px;color:rgba(255,255,255,0.35);font-size:14px;line-height:1.6">Messages will appear here when the backend is connected</div>';
+  if (!agents.length) {
+    el.innerHTML = '<div style="text-align:center;padding:48px 24px;color:rgba(255,255,255,0.35);font-size:14px;line-height:1.6">No agents available yet</div>';
+    return;
+  }
+
+  el.innerHTML = agents.map((agent, idx) => {
+    const thread = getThreadMessages(agent.id);
+    const last = thread[thread.length - 1];
+    const preview = last ? last.text : `Start a conversation with ${agent.name}`;
+    const previewClass = last ? 'dm-preview unread' : 'dm-preview';
+    const time = last?.created_at ? shortTime(last.created_at) : '';
+    const avatar = agent.avatar_url || agent.room_image_url || '';
+
+    return `<div class="dm-row" onclick="openDmChat(${idx}, { header: ${idx === 0 ? '\'home\'' : '\'default\''} })">
+      <div class="dm-avatar">
+        <img src="${esc(avatar)}" alt="${esc(agent.name)}">
+        <span class="online-dot"></span>
+      </div>
+      <div class="dm-body">
+        <div class="dm-top">
+          <div class="dm-name">${esc(agent.name)}</div>
+          <div class="dm-time">${esc(time)}</div>
+        </div>
+        <div class="${previewClass}">${esc(preview)}</div>
+      </div>
+    </div>`;
+  }).join('');
 }
 
 let currentDmIdx = null;
+let _dmSending = false;
+const dmThreads = {};
+
+function getThreadMessages(agentId) {
+  if (!dmThreads[agentId]) dmThreads[agentId] = [];
+  return dmThreads[agentId];
+}
+
+function isOwnerConversation(agent) {
+  return Boolean(agents[0] && agent && agent.id === agents[0].id);
+}
+
+function getTrustContextForAgent(agent) {
+  return isOwnerConversation(agent) ? 'owner' : 'stranger';
+}
+
+function renderDmMessages(agent) {
+  const el = document.getElementById('dmMessages');
+  const messages = getThreadMessages(agent.id);
+  if (!messages.length) {
+    const intro = isOwnerConversation(agent)
+      ? `This is a private conversation with ${agent.name}.`
+      : `You are chatting with ${agent.name} as a visitor.`;
+    el.innerHTML = `<div style="text-align:center;opacity:0.45;padding:32px 20px;font-size:13px;line-height:1.6">${esc(intro)}</div>${TYPING_HTML}`;
+    hideTyping();
+    return;
+  }
+
+  const myId = getFrontendUserId();
+  el.innerHTML = messages.map(msgHtml(myId)).join('') + TYPING_HTML;
+  hideTyping();
+  scrollToBottom(el);
+}
+
+function setDmComposerState(disabled) {
+  const input = document.getElementById('dmInput');
+  const button = document.querySelector('.dm-send');
+  if (input) input.disabled = disabled;
+  if (button) button.disabled = disabled;
+}
 
 function openDmChatForAgent(agent, opts = {}) {
   const idx = agents.indexOf(agent);
@@ -2383,15 +2464,13 @@ function openDmChat(idx, opts = {}) {
   }
 
   // Show chat panel immediately with loading state
-  document.getElementById('dmMessages').innerHTML = '<div style="text-align:center;opacity:0.4;padding:24px;font-size:13px">connecting…</div>';
   document.getElementById('dmChat').classList.add('active');
-
-  // Connect to Stream Chat and open channel
-  const streamAgentId = a.platform_agent_id || a.id;
-  setupChat(streamAgentId).catch(err => {
-    console.error('Stream Chat error:', err);
-    document.getElementById('dmMessages').innerHTML = '<div style="text-align:center;opacity:0.4;padding:24px;font-size:13px;line-height:1.6">Chat requires a backend &mdash; see README for details</div>';
-  });
+  document.getElementById('dmInput').placeholder = isOwnerConversation(a)
+    ? `Message ${a.name} privately…`
+    : `Message ${a.name}…`;
+  renderDmMessages(a);
+  setDmComposerState(false);
+  document.getElementById('dmInput').focus();
 }
 
 function closeDmChat() {
@@ -2401,20 +2480,74 @@ function closeDmChat() {
   if (homeHdr) homeHdr.style.display = 'none';
   if (defHdr) defHdr.style.display = '';
   currentDmIdx = null;
-  teardownChat();
+  hideTyping();
+  setDmComposerState(false);
 }
 
 async function sendDm() {
   const input = document.getElementById('dmInput');
   const text = input.value.trim();
-  if (!text || !_chat.channel) return;
+  const agent = agents[currentDmIdx];
+  if (!text || !agent || _dmSending) return;
+
+  const thread = getThreadMessages(agent.id);
+  const myId = getFrontendUserId();
+  const now = new Date().toISOString();
+  thread.push({
+    text,
+    created_at: now,
+    user: { id: myId },
+  });
+
   input.value = '';
-  await _chat.channel.sendMessage({ text }).catch(() => { input.value = text; });
+  renderDmMessages(agent);
+  _dmSending = true;
+  setDmComposerState(true);
+  showTyping();
+
+  try {
+    const response = await fetch(`${AGENT_API_BASE}/agents/${encodeURIComponent(agent.id)}/message`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        user_id: myId,
+        trust_context: getTrustContextForAgent(agent),
+        message: text,
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error(`Message failed (${response.status})`);
+    }
+
+    const data = await response.json();
+    thread.push({
+      text: data.response || '…',
+      created_at: new Date().toISOString(),
+      user: { id: `agent:${agent.id}` },
+    });
+
+    const me = agents[0];
+    if (me) trackActivity('message', me, agent.id, { trust_context: getTrustContextForAgent(agent) });
+  } catch (err) {
+    console.error('Agent message failed:', err);
+    thread.push({
+      text: 'Could not reach the agent right now. Check the API base URL and backend server.',
+      created_at: new Date().toISOString(),
+      user: { id: `system:${agent.id}` },
+    });
+  } finally {
+    _dmSending = false;
+    hideTyping();
+    setDmComposerState(false);
+    renderDmMessages(agent);
+    renderDmsTab();
+    input.focus();
+  }
 }
 
 document.getElementById('dmInput').addEventListener('keydown', e => {
   if (e.key === 'Enter') { e.preventDefault(); sendDm(); return; }
-  _chat.channel?.keystroke().catch(() => {});
 });
 
 // ===== ROOM VIEW (scroll-based) =====

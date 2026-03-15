@@ -6,3 +6,5 @@ dist/
 build/
 .supabase/
 .vscode/
+*.pyc
+__pycache__/

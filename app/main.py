@@ -22,6 +22,7 @@ from contextlib import asynccontextmanager, suppress
 from typing import Any, AsyncIterator
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
 try:
     from app.dependencies import get_settings
@@ -30,20 +31,20 @@ except Exception:  # pragma: no cover - fallback only used during early bootstra
 
 # Optional router imports. These are loaded only if the files already exist so
 # the app can run incrementally while the project is being built.
-# try:
-#     from app.api.routes_messages import router as messages_router
-# except Exception:
-#     messages_router = None
+try:
+    from app.api.routes_messages import router as messages_router
+except Exception:
+    messages_router = None
 
-# try:
-#     from app.api.routes_agents import router as agents_router
-# except Exception:
-#     agents_router = None
+try:
+    from app.api.routes_agents import router as agents_router
+except Exception:
+    agents_router = None
 
-# try:
-#     from app.api.routes_feed import router as feed_router
-# except Exception:
-#     feed_router = None
+try:
+    from app.api.routes_feed import router as feed_router
+except Exception:
+    feed_router = None
 
 # # Optional service import. If it does not exist yet, we fall back to a stub so
 # # the server still runs while the rest of the codebase is being implemented.
@@ -132,6 +133,14 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=False,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 
 @app.get("/")
 async def root() -> dict[str, str]:
@@ -160,14 +169,14 @@ async def health() -> dict[str, Any]:
 #     return {"status": "ok", "message": "Manual scheduler tick completed."}
 
 
-# if messages_router is not None:
-#     app.include_router(messages_router)
-#     logger.info("Registered messages router")
+if messages_router is not None:
+    app.include_router(messages_router)
+    logger.info("Registered messages router")
 
-# if agents_router is not None:
-#     app.include_router(agents_router)
-#     logger.info("Registered agents router")
+if agents_router is not None:
+    app.include_router(agents_router)
+    logger.info("Registered agents router")
 
-# if feed_router is not None:
-#     app.include_router(feed_router)
-#     logger.info("Registered feed router")
+if feed_router is not None:
+    app.include_router(feed_router)
+    logger.info("Registered feed router")
