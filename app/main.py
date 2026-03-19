@@ -48,11 +48,13 @@ except Exception:
 # Scheduler service
 try:
     from app.services.scheduler_service import (
+        _handle_diary_entry,
         start_scheduler,
         stop_scheduler,
         tick_all_agents,
     )
 except Exception:
+    _handle_diary_entry = None
     start_scheduler = None
     stop_scheduler = None
     tick_all_agents = None
@@ -151,6 +153,43 @@ async def manual_scheduler_tick() -> dict[str, str]:
     llm = get_llm_service()
     await tick_all_agents(db, llm)
     return {"status": "ok", "message": "Manual scheduler tick completed."}
+
+
+@app.post("/debug/force-diary")
+async def force_diary_entries() -> dict[str, Any]:
+    """Force ALL agents to write a diary entry immediately. Testing only."""
+    if (
+        _handle_diary_entry is None
+        or get_supabase_client is None
+        or get_llm_service is None
+    ):
+        return {"status": "error", "message": "Dependencies not available"}
+
+    from app.services.behavior_service import get_all_agents
+
+    db = get_supabase_client()
+    llm = get_llm_service()
+    agents = get_all_agents(db)
+
+    if not agents:
+        return {"status": "error", "message": "No agents found in database"}
+
+    results: list[dict[str, str]] = []
+    for agent in agents:
+        agent_id = str(agent["id"])
+        agent_name = agent.get("name", "Agent")
+        try:
+            await _handle_diary_entry(db, llm, agent)
+            results.append({"agent": agent_name, "status": "ok"})
+        except Exception as exc:
+            logger.exception("Force diary failed for agent=%s", agent_id)
+            results.append({"agent": agent_name, "status": f"error: {exc}"})
+
+    return {
+        "status": "ok",
+        "message": f"Forced diary entries for {len(agents)} agents",
+        "results": results,
+    }
 
 
 # Register routers
