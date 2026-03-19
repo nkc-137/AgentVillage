@@ -117,11 +117,6 @@ CREATE OR REPLACE VIEW activity_feed AS
            NULL::text as proof_url, NULL::text as emoji, created_at
     FROM living_diary
     UNION ALL
-    SELECT id, 'memory_added'::text as type, agent_id,
-           LEFT(text, 60) || CASE WHEN LENGTH(text) > 60 THEN '...' ELSE '' END as text,
-           NULL::text as proof_url, NULL::text as emoji, created_at
-    FROM living_memory
-    UNION ALL
     SELECT id, 'agent_joined'::text as type, id as agent_id,
            name || ' just moved in!' as text, avatar_url as proof_url,
            NULL::text as emoji, created_at

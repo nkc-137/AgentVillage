@@ -45,6 +45,9 @@ async def get_feed(
         )
         rows = _fetch_many(result)
 
+        # Defense-in-depth: strip any private memory rows that may leak through the view
+        rows = [r for r in rows if r.get("type") != "memory_added"]
+
         # Enrich with agent names for display
         if rows:
             agent_ids = list({str(r.get("agent_id", "")) for r in rows if r.get("agent_id")})
