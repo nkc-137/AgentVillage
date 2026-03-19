@@ -9,7 +9,6 @@ This file is responsible for:
 
 from __future__ import annotations
 
-import logging
 import os
 from contextlib import asynccontextmanager
 from typing import Any, AsyncIterator
@@ -58,11 +57,10 @@ except Exception:
     stop_scheduler = None
 
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
-)
-logger = logging.getLogger("agent_village.main")
+from app.services.logging_service import get_logger, setup_logging
+
+setup_logging()
+logger = get_logger("main")
 
 
 class FallbackSettings:

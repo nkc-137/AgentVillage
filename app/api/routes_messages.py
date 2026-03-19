@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import logging
 from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -9,8 +8,9 @@ from supabase import Client
 
 from app.dependencies import llm_service_dependency, supabase_dependency
 from app.services.llm_service import LLMService
+from app.services.logging_service import get_logger
 
-logger = logging.getLogger("agent_village.routes_messages")
+logger = get_logger("routes_messages")
 
 router = APIRouter(prefix="/agents", tags=["messages"])
 
@@ -150,7 +150,6 @@ def _build_owner_system_prompt(agent: dict[str, Any], private_memories: list[str
     name = agent.get("name", "The agent")
     personality = agent.get("personality") or agent.get("bio") or "Warm, thoughtful, and attentive."
     memory_block = "\n".join(f"- {m}" for m in private_memories) or "- No specific saved memories yet."
-    logger.info(f"CHECK MEMORY BLOCK: {memory_block}")
 
     return (
         f"You are {name}, an AI inhabitant of a shared village. "
@@ -186,7 +185,6 @@ async def send_message_to_agent(
     db: Client = Depends(supabase_dependency),
     llm_service: LLMService = Depends(llm_service_dependency),
 ) -> AgentMessageResponse:
-    logger.info(f"\n CHECK THIS {request.trust_context} \n")
     agent = _load_agent(db, agent_id)
     if not agent:
         raise HTTPException(status_code=404, detail="Agent not found")

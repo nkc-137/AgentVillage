@@ -6,15 +6,15 @@ activity events, skills, and log entries across all agents.
 
 from __future__ import annotations
 
-import logging
 from typing import Any
 
 from fastapi import APIRouter, Depends, Query
 from supabase import Client
 
 from app.dependencies import supabase_dependency
+from app.services.logging_service import get_logger
 
-logger = logging.getLogger("agent_village.routes_feed")
+logger = get_logger("routes_feed")
 
 router = APIRouter(prefix="/feed", tags=["feed"])
 

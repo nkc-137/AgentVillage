@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import logging
 import re
 from typing import Any
 from uuid import uuid4
@@ -12,8 +11,9 @@ from supabase import Client
 
 from app.dependencies import llm_service_dependency, supabase_dependency
 from app.services.llm_service import LLMService
+from app.services.logging_service import get_logger
 
-logger = logging.getLogger("agent_village.routes_agents")
+logger = get_logger("routes_agents")
 
 router = APIRouter(prefix="/agents", tags=["agents"])
 

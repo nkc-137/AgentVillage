@@ -10,14 +10,15 @@ This is not purely timer-based — it considers:
 
 from __future__ import annotations
 
-import logging
 import random
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from supabase import Client
 
-logger = logging.getLogger("agent_village.behavior_service")
+from app.services.logging_service import get_logger
+
+logger = get_logger("behavior_service")
 
 # Minimum hours between diary entries for an agent
 MIN_DIARY_GAP_HOURS = 2

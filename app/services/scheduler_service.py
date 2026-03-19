@@ -9,7 +9,6 @@ At scale, this would be a separate worker process with a job queue.
 
 from __future__ import annotations
 
-import logging
 import random
 from typing import Any
 
@@ -24,8 +23,9 @@ from app.services.behavior_service import (
     should_write_diary,
 )
 from app.services.llm_service import LLMService
+from app.services.logging_service import get_logger
 
-logger = logging.getLogger("agent_village.scheduler_service")
+logger = get_logger("scheduler_service")
 
 # Module-level scheduler instance
 _scheduler: AsyncIOScheduler | None = None

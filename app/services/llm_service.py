@@ -12,12 +12,13 @@ Responsibilities:
 
 from __future__ import annotations
 
-import logging
 from typing import Any
 
 from openai import AsyncOpenAI
 
-logger = logging.getLogger("agent_village.llm_service")
+from app.services.logging_service import get_logger
+
+logger = get_logger("llm_service")
 
 
 class LLMService:
