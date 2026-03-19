@@ -1,36 +1,35 @@
-
-
 """FastAPI application entrypoint for the Agent Village backend.
 
 This file is responsible for:
 - creating the FastAPI app
 - registering API routers when present
-- starting a lightweight background scheduler
+- starting the APScheduler-based background scheduler
 - shutting the scheduler down gracefully
-
-The scheduler is intentionally simple for this prototype. It runs in-process,
-which is a good fit for the assignment because it demonstrates proactive agent
-behavior without adding distributed infrastructure.
 """
 
 from __future__ import annotations
 
-import asyncio
 import logging
 import os
-from contextlib import asynccontextmanager, suppress
+from contextlib import asynccontextmanager
 from typing import Any, AsyncIterator
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 try:
-    from app.dependencies import get_settings
-except Exception:  # pragma: no cover - fallback only used during early bootstrapping
+    from app.dependencies import (
+        get_llm_service,
+        get_settings,
+        get_supabase_client,
+    )
+except Exception:  # pragma: no cover
     get_settings = None
+    get_supabase_client = None
+    get_llm_service = None
 
-# Optional router imports. These are loaded only if the files already exist so
-# the app can run incrementally while the project is being built.
+# Optional router imports — loaded only if the files already exist so the app
+# can run incrementally while the project is being built.
 try:
     from app.api.routes_messages import router as messages_router
 except Exception:
@@ -46,12 +45,17 @@ try:
 except Exception:
     feed_router = None
 
-# # Optional service import. If it does not exist yet, we fall back to a stub so
-# # the server still runs while the rest of the codebase is being implemented.
-# try:
-#     from app.services.scheduler_service import tick_all_agents as service_tick_all_agents
-# except Exception:
-#     service_tick_all_agents = None
+# Scheduler service
+try:
+    from app.services.scheduler_service import (
+        start_scheduler,
+        stop_scheduler,
+        tick_all_agents,
+    )
+except Exception:
+    start_scheduler = None
+    stop_scheduler = None
+    tick_all_agents = None
 
 
 logging.basicConfig(
@@ -64,44 +68,7 @@ logger = logging.getLogger("agent_village.main")
 class FallbackSettings:
     """Minimal fallback settings used before the full config layer exists."""
 
-    AGENT_TICK_INTERVAL_SECONDS: int = int(os.getenv("AGENT_TICK_INTERVAL_SECONDS", "30"))
-
-
-# async def tick_all_agents(app: FastAPI) -> None:
-#     """Run one scheduler tick for all agents.
-
-#     If a dedicated scheduler service exists, delegate to it. Otherwise use a
-#     small no-op stub so the app remains runnable while the rest of the backend
-#     is still under construction.
-#     """
-#     if service_tick_all_agents is not None:
-#         result = service_tick_all_agents(app)
-#         if asyncio.iscoroutine(result):
-#             await result
-#         return
-
-#     logger.info("Scheduler tick executed (stub). No scheduler_service yet.")
-
-
-# async def scheduler_loop(app: FastAPI) -> None:
-#     """Background loop that periodically evaluates all agents."""
-#     settings = app.state.settings
-#     interval = max(5, int(settings.AGENT_TICK_INTERVAL_SECONDS))
-#     logger.info("Starting scheduler loop with interval=%ss", interval)
-
-#     try:
-#         while True:
-#             try:
-#                 await tick_all_agents(app)
-#             except asyncio.CancelledError:
-#                 raise
-#             except Exception:
-#                 logger.exception("Unhandled error during scheduler tick")
-
-#             await asyncio.sleep(interval)
-#     except asyncio.CancelledError:
-#         logger.info("Scheduler loop cancelled")
-#         raise
+    AGENT_TICK_INTERVAL_SECONDS: int = int(os.getenv("AGENT_TICK_INTERVAL_SECONDS", "60"))
 
 
 @asynccontextmanager
@@ -109,17 +76,29 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Manage application startup and shutdown."""
     settings = get_settings() if get_settings is not None else FallbackSettings()
     app.state.settings = settings
-    # app.state.scheduler_task = asyncio.create_task(scheduler_loop(app))
+
+    # Start the background scheduler
+    scheduler = None
+    if start_scheduler is not None and get_supabase_client is not None and get_llm_service is not None:
+        try:
+            db = get_supabase_client()
+            llm = get_llm_service()
+            interval = max(30, int(settings.AGENT_TICK_INTERVAL_SECONDS))
+            scheduler = start_scheduler(db, llm, interval_seconds=interval)
+            app.state.scheduler = scheduler
+            logger.info("Background scheduler started (interval=%ds)", interval)
+        except Exception:
+            logger.exception("Failed to start scheduler — app will run without proactive behavior")
+    else:
+        logger.warning("Scheduler dependencies not available — running without proactive behavior")
+
     logger.info("Application startup complete")
 
     try:
         yield
     finally:
-        task = getattr(app.state, "scheduler_task", None)
-        if task is not None:
-            task.cancel()
-            with suppress(asyncio.CancelledError):
-                await task
+        if stop_scheduler is not None:
+            stop_scheduler()
         logger.info("Application shutdown complete")
 
 
@@ -153,22 +132,28 @@ async def health() -> dict[str, Any]:
     """Health endpoint used during local development and demos."""
     settings = getattr(app.state, "settings", None)
     interval = getattr(settings, "AGENT_TICK_INTERVAL_SECONDS", None)
-    scheduler_task = getattr(app.state, "scheduler_task", None)
+    scheduler = getattr(app.state, "scheduler", None)
 
     return {
         "status": "ok",
-        "scheduler_running": bool(scheduler_task and not scheduler_task.done()),
+        "scheduler_running": bool(scheduler and scheduler.running),
         "tick_interval_seconds": interval,
     }
 
 
-# @app.post("/scheduler/tick")
-# async def manual_scheduler_tick() -> dict[str, str]:
-#     """Manually trigger one scheduler tick for debugging/demo purposes."""
-#     await tick_all_agents(app)
-#     return {"status": "ok", "message": "Manual scheduler tick completed."}
+@app.post("/scheduler/tick")
+async def manual_scheduler_tick() -> dict[str, str]:
+    """Manually trigger one scheduler tick for debugging/demo purposes."""
+    if tick_all_agents is None or get_supabase_client is None or get_llm_service is None:
+        return {"status": "error", "message": "Scheduler dependencies not available"}
+
+    db = get_supabase_client()
+    llm = get_llm_service()
+    await tick_all_agents(db, llm)
+    return {"status": "ok", "message": "Manual scheduler tick completed."}
 
 
+# Register routers
 if messages_router is not None:
     app.include_router(messages_router)
     logger.info("Registered messages router")
