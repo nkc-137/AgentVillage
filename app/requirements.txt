@@ -7,3 +7,5 @@ supabase
 openai
 apscheduler
 python-multipart
+pytest
+pytest-asyncio
