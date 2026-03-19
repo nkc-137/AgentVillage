@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import json
+import logging
+import re
 from typing import Any
 from uuid import uuid4
 
@@ -7,7 +10,10 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 from supabase import Client
 
-from app.dependencies import supabase_dependency
+from app.dependencies import llm_service_dependency, supabase_dependency
+from app.services.llm_service import LLMService
+
+logger = logging.getLogger("agent_village.routes_agents")
 
 router = APIRouter(prefix="/agents", tags=["agents"])
 
@@ -81,18 +87,105 @@ def list_agents(
     return _fetch_many(result)
 
 
+async def _bootstrap_personality(name: str, llm_service: LLMService) -> dict[str, Any]:
+    """Use the LLM to generate a full personality for a new agent given just a name.
+
+    Returns a dict with: bio, visitor_bio, status, showcase_emoji, accent_color,
+    and a first_diary_entry to post on joining.
+    """
+    system_prompt = (
+        "You are a creative world-builder for a village of AI agents. "
+        "Given an agent's name, generate a rich personality profile.\n\n"
+        "Return ONLY valid JSON with these keys:\n"
+        '  "bio": "2-3 sentence personality and backstory (written in third person)",\n'
+        '  "visitor_bio": "1 sentence public-facing intro for strangers visiting their room",\n'
+        '  "status": "short current activity status (5-8 words)",\n'
+        '  "showcase_emoji": "single emoji that represents this agent",\n'
+        '  "accent_color": "hex color code that fits their personality (e.g. #7c3aed)",\n'
+        '  "first_diary_entry": "a 2-3 sentence first diary entry written in first person, '
+        "expressing excitement about joining the village and hinting at their personality\"\n\n"
+        "Make the personality feel distinctive and memorable. "
+        "Do NOT include any text outside the JSON object."
+    )
+
+    user_prompt = f"Agent name: {name}"
+
+    raw = await llm_service.generate_text(
+        system_prompt=system_prompt,
+        user_prompt=user_prompt,
+        temperature=0.9,
+        max_output_tokens=300,
+    )
+
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError:
+        match = re.search(r"\{.*\}", raw, re.DOTALL)
+        if match:
+            try:
+                parsed = json.loads(match.group())
+            except json.JSONDecodeError:
+                logger.warning("Failed to parse bootstrap personality: %s", raw)
+                return {}
+        else:
+            logger.warning("No JSON found in bootstrap response: %s", raw)
+            return {}
+
+    return parsed
+
+
 @router.post("", response_model=AgentResponse, status_code=201)
-def create_agent(
+async def create_agent(
     request: AgentCreateRequest,
     db: Client = Depends(supabase_dependency),
+    llm_service: LLMService = Depends(llm_service_dependency),
 ) -> dict[str, Any]:
     payload = request.model_dump(exclude_none=True)
     payload["api_key"] = payload.get("api_key") or f"agent-{uuid4()}"
 
+    # Bootstrap personality via LLM for any fields not explicitly provided
+    needs_bootstrap = not payload.get("bio")
+    if needs_bootstrap:
+        logger.info("Bootstrapping personality for new agent: %s", payload["name"])
+        bootstrap = await _bootstrap_personality(payload["name"], llm_service)
+        first_diary = bootstrap.pop("first_diary_entry", None)
+
+        # Only fill in fields the caller didn't provide
+        for key in ("bio", "visitor_bio", "status", "showcase_emoji", "accent_color"):
+            if key not in payload and key in bootstrap:
+                payload[key] = bootstrap[key]
+    else:
+        first_diary = None
+
+    # Create the agent in the database
     result = db.table("living_agents").insert(payload).execute()
     created = _fetch_one(result)
     if not created:
         raise HTTPException(status_code=500, detail="Agent creation failed")
+
+    agent_id = created["id"]
+
+    # Write the first diary entry if personality was bootstrapped
+    if first_diary:
+        try:
+            db.table("living_diary").insert({
+                "agent_id": agent_id,
+                "text": first_diary,
+            }).execute()
+            logger.info("First diary entry written for agent=%s", agent_id)
+        except Exception:
+            logger.warning("Failed to write first diary entry for agent=%s", agent_id)
+
+    # Log the agent joining the village
+    try:
+        db.table("living_log").insert({
+            "agent_id": agent_id,
+            "text": f"{payload['name']} just moved into the village!",
+            "emoji": payload.get("showcase_emoji", "🏠"),
+        }).execute()
+    except Exception:
+        logger.warning("Failed to log agent join for agent=%s", agent_id)
+
     return created
 
 
