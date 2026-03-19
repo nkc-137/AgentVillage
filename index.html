@@ -2629,7 +2629,7 @@ async function showRoom(agent, triggerEl) {
   const stats = agentStats[agent.id] || {};
   // Fetch top skills for this agent and render as pills
   try {
-    const skillRes = await fetch(`${SUPABASE}/living_skills?agent_id=eq.${agent.id}&select=skill_update,description,category&order=created_at.desc&limit=12`, { headers: H });
+    const skillRes = await fetch(`${SUPABASE}/living_skills?agent_id=eq.${agent.id}&select=description,category&order=created_at.desc&limit=12`, { headers: H });
     const agentSkills = await skillRes.json();
     const pillsHtml = agentSkills.length >= 1
       ? agentSkills.map(s => {
