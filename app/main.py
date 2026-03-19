@@ -51,13 +51,11 @@ try:
         _handle_diary_entry,
         start_scheduler,
         stop_scheduler,
-        tick_all_agents,
     )
 except Exception:
     _handle_diary_entry = None
     start_scheduler = None
     stop_scheduler = None
-    tick_all_agents = None
 
 
 logging.basicConfig(
@@ -142,17 +140,6 @@ async def health() -> dict[str, Any]:
         "tick_interval_seconds": interval,
     }
 
-
-@app.post("/scheduler/tick")
-async def manual_scheduler_tick() -> dict[str, str]:
-    """Manually trigger one scheduler tick for debugging/demo purposes."""
-    if tick_all_agents is None or get_supabase_client is None or get_llm_service is None:
-        return {"status": "error", "message": "Scheduler dependencies not available"}
-
-    db = get_supabase_client()
-    llm = get_llm_service()
-    await tick_all_agents(db, llm)
-    return {"status": "ok", "message": "Manual scheduler tick completed."}
 
 
 @app.post("/debug/force-diary")
