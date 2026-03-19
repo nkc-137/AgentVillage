@@ -125,29 +125,61 @@ class LLMService:
         *,
         message: str,
     ) -> dict[str, Any]:
-        """Optional helper: ask the model whether a message contains memory-worthy info.
+        """Ask the LLM whether a message contains personal information worth remembering.
 
-        This is useful if later you want smarter memory extraction.
-        For now, it returns a simple structured response.
+        Returns a dict with at least:
+            should_store (bool) — whether the message should be saved
+            summary (str)       — a concise version of the memory to store
         """
         system_prompt = (
-            "You are a memory extraction assistant. "
-            "Decide whether the user's message contains important personal "
-            "information worth saving as long-term memory. "
-            "Return JSON with keys: should_store (boolean), memory_type (string), "
-            "summary (string), importance (string)."
+            "You are a memory extraction assistant for an AI agent village. "
+            "An owner is talking to their personal agent. Decide whether the "
+            "owner's message contains important personal information worth "
+            "saving as a long-term memory (e.g. names, birthdays, preferences, "
+            "relationships, goals, routines, facts about their life).\n\n"
+            "Return ONLY valid JSON with these keys:\n"
+            '  "should_store": true or false,\n'
+            '  "summary": "concise memory to save (or empty string if should_store is false)",\n'
+            '  "memory_type": "preference|relationship|event|fact|goal|other",\n'
+            '  "importance": "low|medium|high"\n\n'
+            "Do NOT include any text outside the JSON object."
         )
 
-        user_prompt = f"Message:\n{message}"
+        user_prompt = f"Owner's message:\n{message}"
 
         raw = await self.generate_text(
             system_prompt=system_prompt,
             user_prompt=user_prompt,
             temperature=0.0,
-            max_output_tokens=120,
+            max_output_tokens=150,
         )
 
-        return {"raw_output": raw}
+        # Parse the JSON response, falling back gracefully
+        import json
+
+        try:
+            parsed = json.loads(raw)
+        except json.JSONDecodeError:
+            # Try to extract JSON from markdown code blocks
+            import re
+
+            match = re.search(r"\{.*\}", raw, re.DOTALL)
+            if match:
+                try:
+                    parsed = json.loads(match.group())
+                except json.JSONDecodeError:
+                    logger.warning("Failed to parse memory classification: %s", raw)
+                    return {"should_store": False, "summary": "", "raw_output": raw}
+            else:
+                logger.warning("No JSON found in memory classification: %s", raw)
+                return {"should_store": False, "summary": "", "raw_output": raw}
+
+        return {
+            "should_store": bool(parsed.get("should_store", False)),
+            "summary": parsed.get("summary", ""),
+            "memory_type": parsed.get("memory_type", "other"),
+            "importance": parsed.get("importance", "medium"),
+        }
 
     @staticmethod
     def _clean_text(text: str) -> str:

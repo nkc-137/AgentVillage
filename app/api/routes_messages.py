@@ -108,25 +108,24 @@ def _load_private_memories(db: Client, agent_id: str, user_id: str, limit: int =
     return []
 
 
-def _should_store_memory(message: str, trust_context: str) -> bool:
-    if trust_context != "owner":
-        return False
+async def _should_store_memory(
+    message: str, trust_context: str, llm_service: LLMService
+) -> dict[str, Any]:
+    """Use the LLM to decide if a message contains memory-worthy personal info.
 
-    lowered = message.lower()
-    memory_hints = [
-        "my name",
-        "remember",
-        "my birthday",
-        "i like",
-        "i love",
-        "my wife",
-        "my husband",
-        "my partner",
-        "my favorite",
-        "please remind",
-        "important",
-    ]
-    return any(hint in lowered for hint in memory_hints)
+    Returns a dict with 'should_store' (bool) and 'summary' (str).
+    Only owner messages are evaluated; stranger messages are never stored.
+    """
+    if trust_context != "owner":
+        return {"should_store": False, "summary": ""}
+
+    try:
+        result = await llm_service.classify_memory_candidate(message=message)
+        logger.info("Memory classification result: %s", result)
+        return result
+    except Exception:
+        logger.exception("Memory classification failed, skipping storage")
+        return {"should_store": False, "summary": ""}
 
 
 def _store_memory_best_effort(db: Client, agent_id: str, user_id: str, message: str) -> bool:
@@ -218,12 +217,17 @@ async def send_message_to_agent(
         raise HTTPException(status_code=500, detail=f"LLM call failed: {exc}") from exc
 
     memory_written = False
-    if _should_store_memory(request.message, request.trust_context):
+    classification = await _should_store_memory(
+        request.message, request.trust_context, llm_service
+    )
+    if classification["should_store"]:
+        # Store the LLM-extracted summary rather than the raw message
+        memory_text = classification.get("summary") or request.message
         memory_written = _store_memory_best_effort(
             db,
             agent_id=agent_id,
             user_id=request.user_id,
-            message=request.message,
+            message=memory_text,
         )
 
     try:
