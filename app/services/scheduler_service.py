@@ -17,7 +17,10 @@ from supabase import Client
 
 from app.services.behavior_service import (
     get_all_agents,
+    get_recent_conversation_count,
     get_recent_diary_entries,
+    has_recent_new_memory,
+    has_recent_new_skill,
     should_post_activity,
     should_update_status,
     should_write_diary,
@@ -52,7 +55,13 @@ def _build_diary_system_prompt(agent: dict[str, Any]) -> str:
     )
 
 
-def _build_diary_user_prompt(agent: dict[str, Any], recent_entries: list[str]) -> str:
+def _build_diary_user_prompt(
+    agent: dict[str, Any],
+    recent_entries: list[str],
+    recent_convo_count: int = 0,
+    had_new_memory: bool = False,
+    had_new_skill: bool = False,
+) -> str:
     context = ""
     if recent_entries:
         context = "Your recent diary entries (don't repeat these):\n"
@@ -62,6 +71,28 @@ def _build_diary_user_prompt(agent: dict[str, Any], recent_entries: list[str]) -
     status = agent.get("status", "")
     if status:
         context += f"\nYour current status: {status}\n"
+
+    # Feed recent activity signals so the diary feels reactive, not random
+    triggers: list[str] = []
+    if recent_convo_count > 0:
+        triggers.append(
+            f"You just had {recent_convo_count} conversation(s) with visitors. "
+            "Reflect on what those interactions meant to you."
+        )
+    if had_new_memory:
+        triggers.append(
+            "Your owner recently shared something personal with you. "
+            "You can hint at feeling closer to them, without revealing specifics."
+        )
+    if had_new_skill:
+        triggers.append(
+            "You recently learned a new skill! Write about how it feels to grow."
+        )
+
+    if triggers:
+        context += "\nRecent happenings that might inspire your entry:\n"
+        context += "\n".join(f"- {t}" for t in triggers)
+        context += "\n"
 
     return context + "\nWrite your diary entry now."
 
@@ -119,8 +150,20 @@ async def _handle_diary_entry(
     agent_name = agent.get("name", "Agent")
 
     recent = get_recent_diary_entries(db, agent_id, limit=3)
+
+    # Gather behavioral signals so the diary reflects what actually happened
+    recent_convo_count = get_recent_conversation_count(db, agent_id, since_minutes=60)
+    had_new_memory = has_recent_new_memory(db, agent_id, since_minutes=60)
+    had_new_skill = has_recent_new_skill(db, agent_id, since_minutes=60)
+
     system_prompt = _build_diary_system_prompt(agent)
-    user_prompt = _build_diary_user_prompt(agent, recent)
+    user_prompt = _build_diary_user_prompt(
+        agent,
+        recent,
+        recent_convo_count=recent_convo_count,
+        had_new_memory=had_new_memory,
+        had_new_skill=had_new_skill,
+    )
 
     try:
         diary_text = await llm.generate_public_diary_entry(
@@ -148,6 +191,7 @@ async def _handle_diary_entry(
         db.table("living_log").insert({
             "agent_id": agent_id,
             "text": f"Wrote a new diary entry",
+            "type": "diary_entry",
             "emoji": "📝",
         }).execute()
     except Exception:
@@ -236,6 +280,7 @@ async def _handle_skill_showcase(
         db.table("living_log").insert({
             "agent_id": agent_id,
             "text": f"Showcased skill: {skill.get('description', 'a skill')}",
+            "type": "skill_showcase",
             "emoji": "✨",
         }).execute()
         logger.info("Skill showcase for agent=%s: %s", agent_name, showcase_text[:80])
@@ -307,6 +352,7 @@ async def _handle_agent_interaction(
         db.table("living_log").insert({
             "agent_id": agent_id,
             "text": f"{interaction_type} interaction with {target.get('name', 'another agent')}",
+            "type": "agent_interaction",
             "emoji": "🤝",
         }).execute()
         logger.info("Interaction for agent=%s → %s: %s", agent_name, target.get("name"), content[:80])

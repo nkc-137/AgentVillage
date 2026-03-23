@@ -233,10 +233,24 @@ async def send_message_to_agent(
             {
                 "agent_id": agent_id,
                 "text": f"message handled | trust_context={trust_context} | memory_written={memory_written}",
+                "type": "message",
             }
         ).execute()
     except Exception:
         logger.warning("Unable to write living_log entry for agent=%s", agent_id)
+
+    if memory_written:
+        try:
+            db.table("living_log").insert(
+                {
+                    "agent_id": agent_id,
+                    "text": f"Stored a new memory from owner",
+                    "type": "store_memory",
+                    "emoji": "🧠",
+                }
+            ).execute()
+        except Exception:
+            logger.warning("Unable to write memory log entry for agent=%s", agent_id)
 
     return AgentMessageResponse(
         agent_id=agent_id,

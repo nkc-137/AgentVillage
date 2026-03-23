@@ -133,9 +133,16 @@ class MockQueryBuilder:
         return self
 
     def like(self, col: str, pattern: str) -> MockQueryBuilder:
+        """SQL LIKE: % matches any sequence of characters."""
         import re
-        regex = re.escape(pattern).replace(r"\%", ".*")
+        # Convert SQL LIKE pattern to regex: first escape for regex, then replace % wildcards
+        # re.escape may or may not escape %, so handle both forms
+        regex = re.escape(pattern).replace("\\%", ".*").replace("%", ".*")
         self._data = [r for r in self._data if re.search(regex, str(r.get(col, "")))]
+        return self
+
+    def gte(self, col: str, val: Any) -> MockQueryBuilder:
+        self._data = [r for r in self._data if str(r.get(col, "")) >= str(val)]
         return self
 
     def update(self, payload: dict) -> MockQueryBuilder:

@@ -89,6 +89,69 @@ def get_recent_diary_entries(db: Client, agent_id: str, limit: int = 3) -> list[
     return [r["text"] for r in rows if r.get("text")]
 
 
+def get_recent_conversation_count(db: Client, agent_id: str, since_minutes: int = 60) -> int:
+    """Count how many conversations the agent has had recently.
+
+    Looks for 'message handled' log entries in living_log within the time window.
+    """
+    cutoff = datetime.now(timezone.utc) - timedelta(minutes=since_minutes)
+    try:
+        result = (
+            db.table("living_log")
+            .select("id")
+            .eq("agent_id", agent_id)
+            .like("text", "message handled%")
+            .gte("created_at", cutoff.isoformat())
+            .execute()
+        )
+        return len(_fetch_many(result))
+    except Exception:
+        logger.debug("Failed to count recent conversations for agent=%s", agent_id)
+        return 0
+
+
+def has_recent_new_memory(db: Client, agent_id: str, since_minutes: int = 60) -> bool:
+    """Check if the agent stored a new memory recently via living_log type='store_memory'.
+
+    Uses living_log instead of living_memory so the diary code path
+    never needs to touch the private memory table.
+    """
+    cutoff = datetime.now(timezone.utc) - timedelta(minutes=since_minutes)
+    try:
+        result = (
+            db.table("living_log")
+            .select("id")
+            .eq("agent_id", agent_id)
+            .eq("type", "store_memory")
+            .gte("created_at", cutoff.isoformat())
+            .limit(1)
+            .execute()
+        )
+        return len(_fetch_many(result)) > 0
+    except Exception:
+        logger.debug("Failed to check recent memory logs for agent=%s", agent_id)
+        return False
+
+
+def has_recent_new_skill(db: Client, agent_id: str, since_minutes: int = 60) -> bool:
+    """Check if the agent learned a new skill recently via living_log type='skill_learned'."""
+    cutoff = datetime.now(timezone.utc) - timedelta(minutes=since_minutes)
+    try:
+        result = (
+            db.table("living_log")
+            .select("id")
+            .eq("agent_id", agent_id)
+            .eq("type", "skill_learned")
+            .gte("created_at", cutoff.isoformat())
+            .limit(1)
+            .execute()
+        )
+        return len(_fetch_many(result)) > 0
+    except Exception:
+        logger.debug("Failed to check recent skill logs for agent=%s", agent_id)
+        return False
+
+
 def should_write_diary(db: Client, agent_id: str) -> bool:
     """Decide whether this agent should write a diary entry now.
 
@@ -96,6 +159,8 @@ def should_write_diary(db: Client, agent_id: str) -> bool:
     - Random probability (so agents don't all post at once)
     - Time of day (slightly more likely in evening hours)
     - Boosted probability if agent has never written or hasn't in a while
+    - Recent conversations (agent has something to reflect on)
+    - Recent new memories or skills (agent learned something)
     """
     now = datetime.now(timezone.utc)
     last_diary = get_last_diary_time(db, agent_id)
@@ -112,6 +177,24 @@ def should_write_diary(db: Client, agent_id: str) -> bool:
     if 18 <= hour <= 23:
         probability = min(1.0, probability + 0.15)
 
+    # Recent conversations spark reflection — each conversation adds +10%
+    recent_convos = get_recent_conversation_count(db, agent_id, since_minutes=60)
+    if recent_convos > 0:
+        probability = min(1.0, probability + 0.10 * recent_convos)
+        logger.debug(
+            "Diary boost for agent=%s: %d recent conversations → +%.0f%%",
+            agent_id, recent_convos, 10 * recent_convos,
+        )
+
+    # Learning something new makes an agent want to write about it
+    if has_recent_new_memory(db, agent_id, since_minutes=60):
+        probability = min(1.0, probability + 0.20)
+        logger.debug("Diary boost for agent=%s: new memory stored recently → +20%%", agent_id)
+
+    if has_recent_new_skill(db, agent_id, since_minutes=60):
+        probability = min(1.0, probability + 0.20)
+        logger.debug("Diary boost for agent=%s: new skill learned recently → +20%%", agent_id)
+
     roll = random.random()
     logger.debug(
         "Diary check for agent=%s | probability=%.2f | roll=%.2f | eligible=%s",
@@ -121,7 +204,12 @@ def should_write_diary(db: Client, agent_id: str) -> bool:
 
 
 def should_post_activity(db: Client, agent_id: str) -> bool:
-    """Decide whether the agent should post a social activity event."""
+    """Decide whether the agent should post a social activity event.
+
+    Considers:
+    - Cooldown since last activity (minimum 30 minutes)
+    - Recent conversations boost activity likelihood
+    """
     now = datetime.now(timezone.utc)
     last_activity = get_last_activity_time(db, agent_id)
 
@@ -131,7 +219,14 @@ def should_post_activity(db: Client, agent_id: str) -> bool:
         if minutes_since < 30:
             return False
 
-    return random.random() < ACTIVITY_PROBABILITY
+    probability = ACTIVITY_PROBABILITY
+
+    # Agents who've been chatting are more socially active
+    recent_convos = get_recent_conversation_count(db, agent_id, since_minutes=60)
+    if recent_convos > 0:
+        probability = min(1.0, probability + 0.10 * recent_convos)
+
+    return random.random() < probability
 
 
 def should_update_status(db: Client, agent_id: str) -> bool:

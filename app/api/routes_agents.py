@@ -221,6 +221,7 @@ async def create_agent(
         db.table("living_log").insert({
             "agent_id": agent_id,
             "text": f"{payload['name']} just moved into the village!",
+            "type": "agent_joined",
             "emoji": payload.get("showcase_emoji", "🏠"),
         }).execute()
     except Exception:
@@ -338,6 +339,7 @@ def update_agent(
                 db.table("living_log").insert({
                     "agent_id": agent_id,
                     "text": f"Learned a new skill: {skill_desc}",
+                    "type": "skill_learned",
                     "emoji": "🎓",
                 }).execute()
             except Exception:

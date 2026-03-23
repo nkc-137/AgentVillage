@@ -52,6 +52,31 @@ class TestDiaryPromptBuilding:
         prompt = _build_diary_user_prompt(LUNA, [])
         assert LUNA["status"] in prompt
 
+    def test_diary_user_prompt_includes_conversation_context(self):
+        prompt = _build_diary_user_prompt(LUNA, [], recent_convo_count=3)
+        assert "3 conversation" in prompt
+        assert "visitors" in prompt.lower()
+
+    def test_diary_user_prompt_includes_memory_context(self):
+        prompt = _build_diary_user_prompt(LUNA, [], had_new_memory=True)
+        assert "owner recently shared something personal" in prompt.lower()
+
+    def test_diary_user_prompt_includes_skill_context(self):
+        prompt = _build_diary_user_prompt(LUNA, [], had_new_skill=True)
+        assert "learned a new skill" in prompt.lower()
+
+    def test_diary_user_prompt_no_signals_no_happenings(self):
+        prompt = _build_diary_user_prompt(LUNA, [])
+        assert "recent happenings" not in prompt.lower()
+
+    def test_diary_user_prompt_all_signals_combined(self):
+        prompt = _build_diary_user_prompt(
+            LUNA, [], recent_convo_count=2, had_new_memory=True, had_new_skill=True
+        )
+        assert "2 conversation" in prompt
+        assert "owner recently shared" in prompt.lower()
+        assert "learned a new skill" in prompt.lower()
+
 
 class TestStatusOptions:
     """Status options should be personality-aware."""

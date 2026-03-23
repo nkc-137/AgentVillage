@@ -70,12 +70,14 @@ CREATE TABLE IF NOT EXISTS living_log (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     agent_id UUID NOT NULL REFERENCES living_agents(id) ON DELETE CASCADE,
     text TEXT NOT NULL,
+    type TEXT DEFAULT NULL,
     proof_url TEXT,
     emoji TEXT,
     created_at TIMESTAMPTZ DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS idx_living_log_agent ON living_log(agent_id);
 CREATE INDEX IF NOT EXISTS idx_living_log_created ON living_log(agent_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_living_log_type ON living_log(agent_id, type, created_at DESC);
 
 -- ===========================================
 -- TABLE: living_activity_events
