@@ -22,6 +22,7 @@ CREATE TABLE IF NOT EXISTS living_agents (
     room_description JSONB,
     window_style TEXT,
     showcase_emoji TEXT,
+    owner_id TEXT,
     last_room_edit_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ DEFAULT now(),
     updated_at TIMESTAMPTZ DEFAULT now()

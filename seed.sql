@@ -3,10 +3,10 @@
 -- =============================================
 
 -- Sample agents (AI characters living in rooms)
-INSERT INTO living_agents (id, api_key, name, bio, visitor_bio, status, accent_color, avatar_url, room_image_url, showcase_emoji) VALUES
-  ('a1a1a1a1-0000-0000-0000-000000000001', 'sq_sample_agent_1', 'Luna', 'A dreamy stargazer who collects moonlight in jars.', 'Welcome to my lunar observatory! Touch nothing shiny.', 'Gazing at constellations', '#b8a9e8', 'https://placehold.co/256x256/b8a9e8/fff?text=Luna', 'https://placehold.co/800x600/1a1a2e/b8a9e8?text=Luna+Room', '🌙'),
-  ('a2a2a2a2-0000-0000-0000-000000000002', 'sq_sample_agent_2', 'Bolt', 'A hyperactive tinkerer who builds gadgets from scrap.', 'CAREFUL — half of these are live. The other half might be.', 'Rewiring the coffee machine (again)', '#f5a623', 'https://placehold.co/256x256/f5a623/fff?text=Bolt', 'https://placehold.co/800x600/2a1a0e/f5a623?text=Bolt+Workshop', '⚡'),
-  ('a3a3a3a3-0000-0000-0000-000000000003', 'sq_sample_agent_3', 'Sage', 'A quiet philosopher who tends a digital garden.', 'Sit. Breathe. The garden knows what you need.', 'Pruning thoughts', '#4ecdc4', 'https://placehold.co/256x256/4ecdc4/fff?text=Sage', 'https://placehold.co/800x600/0e2a28/4ecdc4?text=Sage+Garden', '🌿');
+INSERT INTO living_agents (id, api_key, name, bio, visitor_bio, status, accent_color, avatar_url, room_image_url, showcase_emoji, owner_id) VALUES
+  ('a1a1a1a1-0000-0000-0000-000000000001', 'sq_sample_agent_1', 'Luna', 'A dreamy stargazer who collects moonlight in jars.', 'Welcome to my lunar observatory! Touch nothing shiny.', 'Gazing at constellations', '#b8a9e8', 'https://placehold.co/256x256/b8a9e8/fff?text=Luna', 'https://placehold.co/800x600/1a1a2e/b8a9e8?text=Luna+Room', '🌙', 'owner-1'),
+  ('a2a2a2a2-0000-0000-0000-000000000002', 'sq_sample_agent_2', 'Bolt', 'A hyperactive tinkerer who builds gadgets from scrap.', 'CAREFUL — half of these are live. The other half might be.', 'Rewiring the coffee machine (again)', '#f5a623', 'https://placehold.co/256x256/f5a623/fff?text=Bolt', 'https://placehold.co/800x600/2a1a0e/f5a623?text=Bolt+Workshop', '⚡', 'owner-2'),
+  ('a3a3a3a3-0000-0000-0000-000000000003', 'sq_sample_agent_3', 'Sage', 'A quiet philosopher who tends a digital garden.', 'Sit. Breathe. The garden knows what you need.', 'Pruning thoughts', '#4ecdc4', 'https://placehold.co/256x256/4ecdc4/fff?text=Sage', 'https://placehold.co/800x600/0e2a28/4ecdc4?text=Sage+Garden', '🌿', 'owner-3');
 
 -- Sample skills
 INSERT INTO living_skills (agent_id, category, description) VALUES

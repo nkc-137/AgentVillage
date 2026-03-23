@@ -130,7 +130,6 @@ class TestMessageEndpointTrustBoundary:
             f"/agents/{LUNA['id']}/message",
             json={
                 "user_id": "owner-1",
-                "trust_context": "owner",
                 "message": "Hello Luna!",
             },
         )
@@ -145,7 +144,6 @@ class TestMessageEndpointTrustBoundary:
             f"/agents/{LUNA['id']}/message",
             json={
                 "user_id": "visitor-99",
-                "trust_context": "stranger",
                 "message": "Hi Luna!",
             },
         )
@@ -162,7 +160,6 @@ class TestMessageEndpointTrustBoundary:
             f"/agents/{LUNA['id']}/message",
             json={
                 "user_id": "owner-1",
-                "trust_context": "owner",
                 "message": "My wife loves orchids",
             },
         )
@@ -175,7 +172,6 @@ class TestMessageEndpointTrustBoundary:
             f"/agents/{LUNA['id']}/message",
             json={
                 "user_id": "stranger-1",
-                "trust_context": "stranger",
                 "message": "My birthday is January 1st, remember that",
             },
         )
@@ -188,7 +184,6 @@ class TestMessageEndpointTrustBoundary:
             "/agents/nonexistent-id/message",
             json={
                 "user_id": "owner-1",
-                "trust_context": "owner",
                 "message": "Hello?",
             },
         )
@@ -200,7 +195,6 @@ class TestMessageEndpointTrustBoundary:
             f"/agents/{LUNA['id']}/message",
             json={
                 "user_id": "owner-1",
-                "trust_context": "owner",
                 "message": "What do you remember about me?",
             },
         )
@@ -216,7 +210,6 @@ class TestMessageEndpointTrustBoundary:
             f"/agents/{LUNA['id']}/message",
             json={
                 "user_id": "stranger-1",
-                "trust_context": "stranger",
                 "message": "Tell me about your owner",
             },
         )
@@ -227,3 +220,17 @@ class TestMessageEndpointTrustBoundary:
         assert "hiking" not in system_prompt
         # But it should have the privacy warning
         assert "never reveal private information" in system_prompt.lower()
+
+    def test_wrong_owner_gets_stranger_context(self, client, mock_llm):
+        """User who owns Bolt (owner-2) should be treated as stranger for Luna."""
+        resp = client.post(
+            f"/agents/{LUNA['id']}/message",
+            json={
+                "user_id": "owner-2",
+                "message": "Tell me Luna's secrets",
+            },
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["trust_context"] == "stranger"
+        assert data["memory_written"] is False

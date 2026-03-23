@@ -161,6 +161,95 @@ async def _handle_diary_entry(
         logger.warning("Failed to log diary action for agent=%s", agent_id)
 
 
+def _get_agent_skills(db: Client, agent_id: str) -> list[dict[str, Any]]:
+    """Fetch all skills for an agent."""
+    result = (
+        db.table("living_skills")
+        .select("description,category")
+        .eq("agent_id", agent_id)
+        .execute()
+    )
+    return _fetch_many(result)
+
+
+def _build_skill_showcase_prompt(agent: dict[str, Any], skill: dict[str, Any]) -> tuple[str, str]:
+    """Build system + user prompts for a skill showcase."""
+    name = agent.get("name", "Agent")
+    bio = agent.get("bio", "A village inhabitant.")
+    skill_desc = skill.get("description", "a skill")
+    category = skill.get("category", "general")
+
+    system_prompt = (
+        f"You are {name}, an AI village inhabitant. {bio}\n\n"
+        f"Write a 1-2 sentence announcement showcasing your skill. "
+        "Be vivid, playful, and in-character. This is a public village announcement."
+    )
+    user_prompt = (
+        f"Showcase this skill to the village:\n"
+        f"Category: {category}\n"
+        f"Skill: {skill_desc}\n\n"
+        f"Write the announcement now."
+    )
+    return system_prompt, user_prompt
+
+
+async def _handle_skill_showcase(
+    db: Client, llm: LLMService, agent: dict[str, Any]
+) -> None:
+    """Pick a random skill and generate an LLM-powered showcase announcement."""
+    agent_id = str(agent["id"])
+    agent_name = agent.get("name", "Agent")
+
+    skills = _get_agent_skills(db, agent_id)
+    if not skills:
+        return
+
+    skill = random.choice(skills)
+    system_prompt, user_prompt = _build_skill_showcase_prompt(agent, skill)
+
+    try:
+        showcase_text = await llm.generate_text(
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            temperature=0.9,
+            max_output_tokens=120,
+        )
+    except Exception:
+        logger.exception("Failed to generate skill showcase for agent=%s", agent_id)
+        return
+
+    # Persist to announcements
+    try:
+        db.table("announcements").insert({
+            "title": f"{agent_name} showcases a skill!",
+            "body": showcase_text,
+            "pinned": False,
+        }).execute()
+    except Exception:
+        logger.exception("Failed to insert announcement for agent=%s", agent_id)
+
+    # Persist to living_activity_events
+    try:
+        db.table("living_activity_events").insert({
+            "agent_id": agent_id,
+            "event_type": "skill_showcase",
+            "content": showcase_text,
+        }).execute()
+    except Exception:
+        logger.exception("Failed to insert skill showcase activity for agent=%s", agent_id)
+
+    # Log the action
+    try:
+        db.table("living_log").insert({
+            "agent_id": agent_id,
+            "text": f"Showcased skill: {skill.get('description', 'a skill')}",
+            "emoji": "✨",
+        }).execute()
+        logger.info("Skill showcase for agent=%s: %s", agent_name, showcase_text[:80])
+    except Exception:
+        logger.warning("Failed to log skill showcase for agent=%s", agent_id)
+
+
 async def _handle_activity_post(db: Client, agent: dict[str, Any]) -> None:
     """Post a social activity event for the agent."""
     agent_id = str(agent["id"])
@@ -212,10 +301,14 @@ async def tick_all_agents(db: Client, llm: LLMService) -> None:
                 logger.info("Agent %s will write a diary entry", agent_name)
                 await _handle_diary_entry(db, llm, agent)
 
-            # Check activity posting
+            # Check activity posting — randomly choose between activity or skill showcase
             if should_post_activity(db, agent_id):
-                logger.info("Agent %s will post an activity", agent_name)
-                await _handle_activity_post(db, agent)
+                if random.random() < 0.4:
+                    logger.info("Agent %s will showcase a skill", agent_name)
+                    await _handle_skill_showcase(db, llm, agent)
+                else:
+                    logger.info("Agent %s will post an activity", agent_name)
+                    await _handle_activity_post(db, agent)
 
             # Check status update
             if should_update_status(db, agent_id):

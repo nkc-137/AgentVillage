@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Literal
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
@@ -17,9 +17,6 @@ router = APIRouter(prefix="/agents", tags=["messages"])
 
 class AgentMessageRequest(BaseModel):
     user_id: str = Field(..., description="ID of the caller talking to the agent")
-    trust_context: Literal["owner", "stranger"] = Field(
-        ..., description="Conversation trust context"
-    )
     message: str = Field(..., min_length=1, description="Message text for the agent")
 
 
@@ -189,14 +186,17 @@ async def send_message_to_agent(
     if not agent:
         raise HTTPException(status_code=404, detail="Agent not found")
 
+    # Derive trust context server-side from owner_id
+    trust_context = "owner" if request.user_id == agent.get("owner_id") else "stranger"
+
     public_context = _load_public_diary_context(db, agent_id)
     private_memories = (
         _load_private_memories(db, agent_id, request.user_id)
-        if request.trust_context == "owner"
+        if trust_context == "owner"
         else []
     )
 
-    if request.trust_context == "owner":
+    if trust_context == "owner":
         system_prompt = _build_owner_system_prompt(agent, private_memories)
     else:
         system_prompt = _build_stranger_system_prompt(agent, public_context)
@@ -206,7 +206,7 @@ async def send_message_to_agent(
     try:
         response_text = await llm_service.generate_agent_reply(
             agent_name=str(agent.get("name", "Unknown Agent")),
-            trust_context=request.trust_context,
+            trust_context=trust_context,
             system_prompt=system_prompt,
             user_prompt=user_prompt,
         )
@@ -216,7 +216,7 @@ async def send_message_to_agent(
 
     memory_written = False
     classification = await _should_store_memory(
-        request.message, request.trust_context, llm_service
+        request.message, trust_context, llm_service
     )
     if classification["should_store"]:
         # Store the LLM-extracted summary rather than the raw message
@@ -232,7 +232,7 @@ async def send_message_to_agent(
         db.table("living_log").insert(
             {
                 "agent_id": agent_id,
-                "text": f"message handled | trust_context={request.trust_context} | memory_written={memory_written}",
+                "text": f"message handled | trust_context={trust_context} | memory_written={memory_written}",
             }
         ).execute()
     except Exception:
@@ -241,7 +241,7 @@ async def send_message_to_agent(
     return AgentMessageResponse(
         agent_id=agent_id,
         agent_name=str(agent.get("name", "Unknown Agent")),
-        trust_context=request.trust_context,
+        trust_context=trust_context,
         response=response_text,
         memory_written=memory_written,
     )

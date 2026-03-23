@@ -48,11 +48,13 @@ except Exception:
 try:
     from app.services.scheduler_service import (
         _handle_diary_entry,
+        _handle_skill_showcase,
         start_scheduler,
         stop_scheduler,
     )
 except Exception:
     _handle_diary_entry = None
+    _handle_skill_showcase = None
     start_scheduler = None
     stop_scheduler = None
 
@@ -173,6 +175,43 @@ async def force_diary_entries() -> dict[str, Any]:
     return {
         "status": "ok",
         "message": f"Forced diary entries for {len(agents)} agents",
+        "results": results,
+    }
+
+
+@app.post("/debug/force-skill-showcase")
+async def force_skill_showcase() -> dict[str, Any]:
+    """Force ALL agents to showcase a skill immediately. Testing only."""
+    if (
+        _handle_skill_showcase is None
+        or get_supabase_client is None
+        or get_llm_service is None
+    ):
+        return {"status": "error", "message": "Dependencies not available"}
+
+    from app.services.behavior_service import get_all_agents
+
+    db = get_supabase_client()
+    llm = get_llm_service()
+    agents = get_all_agents(db)
+
+    if not agents:
+        return {"status": "error", "message": "No agents found in database"}
+
+    results: list[dict[str, str]] = []
+    for agent in agents:
+        agent_id = str(agent["id"])
+        agent_name = agent.get("name", "Agent")
+        try:
+            await _handle_skill_showcase(db, llm, agent)
+            results.append({"agent": agent_name, "status": "ok"})
+        except Exception as exc:
+            logger.exception("Force skill showcase failed for agent=%s", agent_id)
+            results.append({"agent": agent_name, "status": f"error: {exc}"})
+
+    return {
+        "status": "ok",
+        "message": f"Forced skill showcase for {len(agents)} agents",
         "results": results,
     }
 

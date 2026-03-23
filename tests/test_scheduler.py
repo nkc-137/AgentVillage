@@ -9,13 +9,21 @@ import pytest
 from app.services.scheduler_service import (
     _build_diary_system_prompt,
     _build_diary_user_prompt,
+    _build_skill_showcase_prompt,
     _build_status_options,
+    _get_agent_skills,
     _handle_activity_post,
     _handle_diary_entry,
+    _handle_skill_showcase,
     _handle_status_update,
     tick_all_agents,
 )
 from tests.conftest import BOLT, LUNA, make_mock_db, make_mock_llm
+
+LUNA_SKILLS = [
+    {"agent_id": LUNA["id"], "description": "Can identify 47 constellations by memory", "category": "observation"},
+    {"agent_id": LUNA["id"], "description": "Makes dreamcatchers from recycled circuit boards", "category": "crafting"},
+]
 
 
 class TestDiaryPromptBuilding:
@@ -84,6 +92,50 @@ class TestHandleDiaryEntry:
 
         # Should not raise
         await _handle_diary_entry(db, llm, LUNA)
+
+
+class TestSkillShowcase:
+    """Skill showcase should pick a skill, call LLM, and persist to 3 tables."""
+
+    def test_skill_showcase_prompt_includes_agent_and_skill(self):
+        skill = LUNA_SKILLS[0]
+        system_prompt, user_prompt = _build_skill_showcase_prompt(LUNA, skill)
+        assert "Luna" in system_prompt
+        assert "dreamy stargazer" in system_prompt
+        assert "47 constellations" in user_prompt
+        assert "observation" in user_prompt
+
+    @pytest.mark.asyncio
+    async def test_showcase_calls_llm_and_persists(self):
+        db = make_mock_db(skills=LUNA_SKILLS)
+        llm = make_mock_llm()
+        llm.generate_text = AsyncMock(return_value="Luna dazzled the village with her star knowledge!")
+
+        await _handle_skill_showcase(db, llm, LUNA)
+
+        llm.generate_text.assert_called_once()
+        # Verify temperature is 0.9 for creative output
+        call_kwargs = llm.generate_text.call_args.kwargs
+        assert call_kwargs["temperature"] == 0.9
+
+    @pytest.mark.asyncio
+    async def test_showcase_does_nothing_without_skills(self):
+        db = make_mock_db(skills=[])
+        llm = make_mock_llm()
+
+        await _handle_skill_showcase(db, llm, LUNA)
+
+        # LLM should never be called if agent has no skills
+        llm.generate_text.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_showcase_llm_failure_does_not_crash(self):
+        db = make_mock_db(skills=LUNA_SKILLS)
+        llm = make_mock_llm()
+        llm.generate_text = AsyncMock(side_effect=Exception("LLM down"))
+
+        # Should not raise
+        await _handle_skill_showcase(db, llm, LUNA)
 
 
 class TestHandleActivityPost:

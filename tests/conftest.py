@@ -30,6 +30,7 @@ LUNA = {
     "avatar_url": "https://placehold.co/256x256/b8a9e8/fff?text=Luna",
     "room_image_url": "https://placehold.co/800x600/1a1a2e/b8a9e8?text=Luna+Room",
     "showcase_emoji": "🌙",
+    "owner_id": "owner-1",
     "created_at": "2026-03-10T00:00:00+00:00",
     "updated_at": "2026-03-10T00:00:00+00:00",
 }
@@ -45,6 +46,7 @@ BOLT = {
     "avatar_url": "https://placehold.co/256x256/f5a623/fff?text=Bolt",
     "room_image_url": None,
     "showcase_emoji": "⚡",
+    "owner_id": "owner-2",
     "created_at": "2026-03-10T00:00:00+00:00",
     "updated_at": "2026-03-10T00:00:00+00:00",
 }
@@ -119,10 +121,21 @@ class MockQueryBuilder:
             "room_description": None,
             "window_style": None,
             "showcase_emoji": None,
+            "owner_id": None,
             "created_at": "2026-03-19T00:00:00+00:00",
             "updated_at": "2026-03-19T00:00:00+00:00",
         }
         self._data = [{**defaults, **payload}]
+        return self
+
+    def delete(self) -> MockQueryBuilder:
+        self._data = []
+        return self
+
+    def like(self, col: str, pattern: str) -> MockQueryBuilder:
+        import re
+        regex = re.escape(pattern).replace(r"\%", ".*")
+        self._data = [r for r in self._data if re.search(regex, str(r.get(col, "")))]
         return self
 
     def update(self, payload: dict) -> MockQueryBuilder:
@@ -160,6 +173,7 @@ def make_mock_db(
         "living_skills": skills,
         "living_activity_events": [],
         "activity_feed": feed,
+        "announcements": [],
     }
 
     db = MagicMock()

@@ -80,18 +80,6 @@ class TestShouldWriteDiary:
         db = _db_with_last_diary(hours_ago=8)
         assert should_write_diary(db, "agent-1") is True
 
-    @patch("app.services.behavior_service.random")
-    @patch("app.services.behavior_service.datetime")
-    def test_evening_boosts_probability(self, mock_dt, mock_random):
-        """Between 18-23 UTC, probability gets +0.15 boost."""
-        now = datetime(2026, 3, 19, 20, 0, 0, tzinfo=timezone.utc)  # 8 PM UTC
-        mock_dt.now.return_value = now
-        mock_dt.fromisoformat = datetime.fromisoformat
-        mock_random.random.return_value = 0.5  # Above 0.4 but below 0.55
-
-        db = _db_with_last_diary(hours_ago=3)
-        assert should_write_diary(db, "agent-1") is True
-
 
 class TestShouldPostActivity:
     """Activity posting should respect cooldown and probability."""

@@ -2395,6 +2395,11 @@ function getThreadMessages(agentId) {
 }
 
 function isOwnerConversation(agent) {
+  // You own an agent if its owner_id matches the first agent's owner_id (your identity).
+  // Falls back to the original agents[0] check if owner_id is not set.
+  if (agents[0] && agents[0].owner_id && agent && agent.owner_id) {
+    return agent.owner_id === agents[0].owner_id;
+  }
   return Boolean(agents[0] && agent && agent.id === agents[0].id);
 }
 
@@ -2492,11 +2497,14 @@ async function sendDm() {
 
   const thread = getThreadMessages(agent.id);
   const myId = getFrontendUserId();
+  // Send the agent's owner_id when we are the owner (agents[0]), so the server
+  // can match user_id == owner_id and derive trust_context = "owner".
+  const effectiveUserId = isOwnerConversation(agent) && agent.owner_id ? agent.owner_id : myId;
   const now = new Date().toISOString();
   thread.push({
     text,
     created_at: now,
-    user: { id: myId },
+    user: { id: effectiveUserId },
   });
 
   input.value = '';
@@ -2510,8 +2518,7 @@ async function sendDm() {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        user_id: myId,
-        trust_context: getTrustContextForAgent(agent),
+        user_id: effectiveUserId,
         message: text,
       }),
     });
