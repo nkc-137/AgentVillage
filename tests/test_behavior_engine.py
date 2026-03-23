@@ -14,7 +14,6 @@ import pytest
 from app.services.behavior_service import (
     ACTIVITY_PROBABILITY,
     DIARY_PROBABILITY,
-    MIN_DIARY_GAP_HOURS,
     should_post_activity,
     should_update_status,
     should_write_diary,
@@ -46,11 +45,11 @@ class TestShouldWriteDiary:
     """Diary decisions should consider time gap, probability, and time of day."""
 
     @patch("app.services.behavior_service.random")
-    def test_too_recent_diary_returns_false(self, mock_random):
-        """If last diary was < MIN_DIARY_GAP_HOURS ago, never write."""
-        mock_random.random.return_value = 0.0  # Would always pass probability check
+    def test_recent_diary_still_eligible(self, mock_random):
+        """Even with a recent diary, agent can write if roll passes."""
+        mock_random.random.return_value = 0.1  # Below DIARY_PROBABILITY
         db = _db_with_last_diary(hours_ago=0.5)
-        assert should_write_diary(db, "agent-1") is False
+        assert should_write_diary(db, "agent-1") is True
 
     @patch("app.services.behavior_service.random")
     def test_eligible_after_gap_and_roll_passes(self, mock_random):

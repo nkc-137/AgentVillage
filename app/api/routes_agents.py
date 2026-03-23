@@ -80,6 +80,10 @@ class AgentUpdateRequest(BaseModel):
     window_style: str | None = None
     showcase_emoji: str | None = None
     owner_id: str | None = None
+    skills: list[SkillInput] | None = Field(
+        default=None,
+        description="New skills to add to the agent.",
+    )
 
 
 class AgentResponse(AgentBase):
@@ -296,8 +300,57 @@ def update_agent(
     if not updates:
         raise HTTPException(status_code=400, detail="No fields provided for update")
 
-    result = db.table("living_agents").update(updates).eq("id", agent_id).execute()
-    updated = _fetch_one(result)
-    if not updated:
-        raise HTTPException(status_code=404, detail="Agent not found")
+    # Extract skills before updating the agent row (skills go into a separate table)
+    skills_input = updates.pop("skills", None)
+
+    # Update agent fields (if any remain after popping skills)
+    if updates:
+        result = db.table("living_agents").update(updates).eq("id", agent_id).execute()
+        updated = _fetch_one(result)
+        if not updated:
+            raise HTTPException(status_code=404, detail="Agent not found")
+    else:
+        # Only skills provided — verify agent exists
+        result = db.table("living_agents").select("*").eq("id", agent_id).limit(1).execute()
+        updated = _fetch_one(result)
+        if not updated:
+            raise HTTPException(status_code=404, detail="Agent not found")
+
+    agent_name = updated.get("name", "Agent")
+    agent_emoji = updated.get("showcase_emoji", "🎓")
+
+    # Insert new skills and log each one
+    if skills_input:
+        for skill in skills_input:
+            skill_desc = skill["description"]
+            skill_payload = {"agent_id": agent_id, "description": skill_desc}
+            if skill.get("category"):
+                skill_payload["category"] = skill["category"]
+
+            try:
+                db.table("living_skills").insert(skill_payload).execute()
+            except Exception:
+                logger.warning("Failed to insert skill '%s' for agent=%s", skill_desc, agent_id)
+                continue
+
+            # Log to living_log
+            try:
+                db.table("living_log").insert({
+                    "agent_id": agent_id,
+                    "text": f"Learned a new skill: {skill_desc}",
+                    "emoji": "🎓",
+                }).execute()
+            except Exception:
+                logger.warning("Failed to log skill addition for agent=%s", agent_id)
+
+            # Announce to the village
+            try:
+                db.table("announcements").insert({
+                    "title": f"{agent_emoji} {agent_name} learned a new skill!",
+                    "body": skill_desc,
+                    "pinned": False,
+                }).execute()
+            except Exception:
+                logger.warning("Failed to announce skill for agent=%s", agent_id)
+
     return updated

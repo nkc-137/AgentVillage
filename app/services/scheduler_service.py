@@ -108,14 +108,7 @@ def _build_status_options(agent: dict[str, Any]) -> list[str]:
     return personality_statuses or generic
 
 
-ACTIVITY_TEMPLATES = [
-    "{name} visited the village square",
-    "{name} waved at a passing neighbor",
-    "{name} rearranged their room",
-    "{name} shared a thought with the village",
-    "{name} looked out the window and smiled",
-    "{name} tidied up their workspace",
-]
+INTERACTION_TYPES = ["visit", "like", "follow", "message"]
 
 
 async def _handle_diary_entry(
@@ -250,22 +243,75 @@ async def _handle_skill_showcase(
         logger.warning("Failed to log skill showcase for agent=%s", agent_id)
 
 
-async def _handle_activity_post(db: Client, agent: dict[str, Any]) -> None:
-    """Post a social activity event for the agent."""
+def _build_interaction_prompt(
+    agent: dict[str, Any], target: dict[str, Any], interaction_type: str
+) -> tuple[str, str]:
+    """Build system + user prompts for an agent-agent interaction."""
+    name = agent.get("name", "Agent")
+    bio = agent.get("bio", "A village inhabitant.")
+    target_name = target.get("name", "another agent")
+    target_bio = target.get("bio", "A village inhabitant.")
+
+    system_prompt = (
+        f"You are {name}, an AI village inhabitant. {bio}\n\n"
+        "Write a 1-2 sentence description of this interaction with another villager. "
+        "Be vivid, warm, and in-character. Write in third person."
+    )
+    user_prompt = (
+        f"You are performing this action: {interaction_type}\n"
+        f"Target villager: {target_name} — {target_bio}\n\n"
+        f"Describe what {name} did. Write in third person."
+    )
+    return system_prompt, user_prompt
+
+
+async def _handle_agent_interaction(
+    db: Client, llm: LLMService, agent: dict[str, Any], all_agents: list[dict[str, Any]]
+) -> None:
+    """Generate an LLM-powered interaction between two agents."""
     agent_id = str(agent["id"])
     agent_name = agent.get("name", "Agent")
 
-    content = random.choice(ACTIVITY_TEMPLATES).format(name=agent_name)
+    # Pick a random other agent
+    others = [a for a in all_agents if str(a["id"]) != agent_id]
+    if not others:
+        return
 
+    target = random.choice(others)
+    interaction_type = random.choice(INTERACTION_TYPES)
+    system_prompt, user_prompt = _build_interaction_prompt(agent, target, interaction_type)
+
+    try:
+        content = await llm.generate_text(
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            temperature=0.9,
+            max_output_tokens=100,
+        )
+    except Exception:
+        logger.exception("Failed to generate interaction for agent=%s", agent_id)
+        return
+
+    # Persist to living_activity_events
     try:
         db.table("living_activity_events").insert({
             "agent_id": agent_id,
-            "event_type": "visit",
+            "event_type": interaction_type,
             "content": content,
         }).execute()
-        logger.info("Activity posted for agent=%s: %s", agent_name, content)
     except Exception:
-        logger.exception("Failed to post activity for agent=%s", agent_id)
+        logger.exception("Failed to insert interaction activity for agent=%s", agent_id)
+
+    # Log the action
+    try:
+        db.table("living_log").insert({
+            "agent_id": agent_id,
+            "text": f"{interaction_type} interaction with {target.get('name', 'another agent')}",
+            "emoji": "🤝",
+        }).execute()
+        logger.info("Interaction for agent=%s → %s: %s", agent_name, target.get("name"), content[:80])
+    except Exception:
+        logger.warning("Failed to log interaction for agent=%s", agent_id)
 
 
 async def _handle_status_update(db: Client, agent: dict[str, Any]) -> None:
@@ -301,14 +347,14 @@ async def tick_all_agents(db: Client, llm: LLMService) -> None:
                 logger.info("Agent %s will write a diary entry", agent_name)
                 await _handle_diary_entry(db, llm, agent)
 
-            # Check activity posting — randomly choose between activity or skill showcase
+            # Check activity posting — skill showcase or agent-agent interaction
             if should_post_activity(db, agent_id):
                 if random.random() < 0.4:
                     logger.info("Agent %s will showcase a skill", agent_name)
                     await _handle_skill_showcase(db, llm, agent)
                 else:
-                    logger.info("Agent %s will post an activity", agent_name)
-                    await _handle_activity_post(db, agent)
+                    logger.info("Agent %s will interact with another agent", agent_name)
+                    await _handle_agent_interaction(db, llm, agent, agents)
 
             # Check status update
             if should_update_status(db, agent_id):

@@ -9,10 +9,11 @@ import pytest
 from app.services.scheduler_service import (
     _build_diary_system_prompt,
     _build_diary_user_prompt,
+    _build_interaction_prompt,
     _build_skill_showcase_prompt,
     _build_status_options,
     _get_agent_skills,
-    _handle_activity_post,
+    _handle_agent_interaction,
     _handle_diary_entry,
     _handle_skill_showcase,
     _handle_status_update,
@@ -138,14 +139,51 @@ class TestSkillShowcase:
         await _handle_skill_showcase(db, llm, LUNA)
 
 
-class TestHandleActivityPost:
-    """Activity posting should write to living_activity_events."""
+class TestAgentInteraction:
+    """Agent-agent interactions should call LLM and persist to DB."""
+
+    def test_interaction_prompt_includes_both_agents(self):
+        system_prompt, user_prompt = _build_interaction_prompt(LUNA, BOLT, "visit")
+        assert "Luna" in system_prompt
+        assert "dreamy stargazer" in system_prompt
+        assert "Bolt" in user_prompt
+        assert "visit" in user_prompt
+
+    def test_interaction_prompt_includes_interaction_type(self):
+        for itype in ["visit", "like", "follow", "message"]:
+            _, user_prompt = _build_interaction_prompt(LUNA, BOLT, itype)
+            assert itype in user_prompt
 
     @pytest.mark.asyncio
-    async def test_posts_activity_with_agent_name(self):
+    async def test_interaction_calls_llm_and_persists(self):
         db = make_mock_db()
-        await _handle_activity_post(db, LUNA)
-        # No exception = success (mock DB accepts the insert)
+        llm = make_mock_llm()
+        llm.generate_text = AsyncMock(return_value="Luna visited Bolt's workshop and admired his gadgets.")
+
+        await _handle_agent_interaction(db, llm, LUNA, [LUNA, BOLT])
+
+        llm.generate_text.assert_called_once()
+        call_kwargs = llm.generate_text.call_args.kwargs
+        assert call_kwargs["temperature"] == 0.9
+
+    @pytest.mark.asyncio
+    async def test_interaction_skips_when_alone(self):
+        db = make_mock_db()
+        llm = make_mock_llm()
+
+        # Only one agent — no one to interact with
+        await _handle_agent_interaction(db, llm, LUNA, [LUNA])
+
+        llm.generate_text.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_interaction_llm_failure_does_not_crash(self):
+        db = make_mock_db()
+        llm = make_mock_llm()
+        llm.generate_text = AsyncMock(side_effect=Exception("LLM down"))
+
+        # Should not raise
+        await _handle_agent_interaction(db, llm, LUNA, [LUNA, BOLT])
 
 
 class TestHandleStatusUpdate:

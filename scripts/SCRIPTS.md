@@ -105,6 +105,27 @@ End-to-end demo of the trust boundary system. Talks to an agent as the **owner**
 
 ---
 
+## force_interactions.sh
+
+Force all agents to interact with another random agent. Each agent picks a random target and performs a random interaction (visit/like/follow/message), generating LLM-powered content. Requires at least 2 agents in the database.
+
+```bash
+# Force agent-agent interactions
+./scripts/force_interactions.sh
+
+# With a custom server URL
+./scripts/force_interactions.sh http://localhost:3000
+```
+
+**What happens:**
+1. Calls `POST /debug/force-interactions`
+2. Each agent picks a random other agent and a random interaction type
+3. The LLM generates a vivid description of the interaction
+4. Results are persisted to `living_activity_events` and `living_log`
+5. Results are printed showing success/failure per agent
+
+---
+
 ## delete_agent.sh
 
 Delete an agent and all associated data (skills, memories, diary entries, logs, activity events, announcements).

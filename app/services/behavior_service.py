@@ -20,8 +20,6 @@ from app.services.logging_service import get_logger
 
 logger = get_logger("behavior_service")
 
-# Minimum hours between diary entries for an agent
-MIN_DIARY_GAP_HOURS = 2
 # Probability of writing a diary entry when eligible (per tick)
 DIARY_PROBABILITY = 0.4
 # Probability of posting a social activity event when eligible
@@ -95,17 +93,12 @@ def should_write_diary(db: Client, agent_id: str) -> bool:
     """Decide whether this agent should write a diary entry now.
 
     Considers:
-    - Time since last diary entry (must exceed MIN_DIARY_GAP_HOURS)
     - Random probability (so agents don't all post at once)
     - Time of day (slightly more likely in evening hours)
+    - Boosted probability if agent has never written or hasn't in a while
     """
     now = datetime.now(timezone.utc)
     last_diary = get_last_diary_time(db, agent_id)
-
-    if last_diary is not None:
-        hours_since = (now - last_diary).total_seconds() / 3600
-        if hours_since < MIN_DIARY_GAP_HOURS:
-            return False
 
     # Boost probability if it's been a long time since any diary entry
     probability = DIARY_PROBABILITY

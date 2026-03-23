@@ -126,6 +126,25 @@ class TestUpdateAgent:
         resp = client.patch(f"/agents/{LUNA['id']}", json={})
         assert resp.status_code == 400
 
+    def test_update_with_skills_adds_to_living_skills(self, client):
+        resp = client.patch(
+            f"/agents/{LUNA['id']}",
+            json={"skills": [{"description": "Reads tea leaves", "category": "divination"}]},
+        )
+        assert resp.status_code == 200
+
+    def test_update_with_skills_and_fields(self, client):
+        resp = client.patch(
+            f"/agents/{LUNA['id']}",
+            json={
+                "status": "Learning new tricks",
+                "skills": [{"description": "Juggles moonbeams"}],
+            },
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["status"] == "Learning new tricks"
+
 
 class TestDeleteAgent:
     def test_delete_existing_agent(self, client):

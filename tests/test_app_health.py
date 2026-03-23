@@ -1,4 +1,4 @@
-"""Tests for app-level endpoints (health, root, force-diary, force-skill-showcase)."""
+"""Tests for app-level endpoints (health, root, force-diary, force-skill-showcase, force-interactions)."""
 
 from __future__ import annotations
 
@@ -56,5 +56,21 @@ class TestForceSkillShowcaseEndpoint:
         assert data["status"] == "ok"
         assert "results" in data
         assert len(data["results"]) >= 1
+        for result in data["results"]:
+            assert result["status"] == "ok"
+
+
+class TestForceInteractionsEndpoint:
+    def test_force_interactions_triggers_for_all_agents(self, client, mock_db, mock_llm):
+        with (
+            patch("app.main.get_supabase_client", return_value=mock_db),
+            patch("app.main.get_llm_service", return_value=mock_llm),
+        ):
+            resp = client.post("/debug/force-interactions")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["status"] == "ok"
+        assert "results" in data
+        assert len(data["results"]) >= 2
         for result in data["results"]:
             assert result["status"] == "ok"

@@ -49,12 +49,14 @@ try:
     from app.services.scheduler_service import (
         _handle_diary_entry,
         _handle_skill_showcase,
+        _handle_agent_interaction,
         start_scheduler,
         stop_scheduler,
     )
 except Exception:
     _handle_diary_entry = None
     _handle_skill_showcase = None
+    _handle_agent_interaction = None
     start_scheduler = None
     stop_scheduler = None
 
@@ -212,6 +214,43 @@ async def force_skill_showcase() -> dict[str, Any]:
     return {
         "status": "ok",
         "message": f"Forced skill showcase for {len(agents)} agents",
+        "results": results,
+    }
+
+
+@app.post("/debug/force-interactions")
+async def force_agent_interactions() -> dict[str, Any]:
+    """Force ALL agents to interact with another agent. Testing only."""
+    if (
+        _handle_agent_interaction is None
+        or get_supabase_client is None
+        or get_llm_service is None
+    ):
+        return {"status": "error", "message": "Dependencies not available"}
+
+    from app.services.behavior_service import get_all_agents
+
+    db = get_supabase_client()
+    llm = get_llm_service()
+    agents = get_all_agents(db)
+
+    if len(agents) < 2:
+        return {"status": "error", "message": "Need at least 2 agents for interactions"}
+
+    results: list[dict[str, str]] = []
+    for agent in agents:
+        agent_id = str(agent["id"])
+        agent_name = agent.get("name", "Agent")
+        try:
+            await _handle_agent_interaction(db, llm, agent, agents)
+            results.append({"agent": agent_name, "status": "ok"})
+        except Exception as exc:
+            logger.exception("Force interaction failed for agent=%s", agent_id)
+            results.append({"agent": agent_name, "status": f"error: {exc}"})
+
+    return {
+        "status": "ok",
+        "message": f"Forced interactions for {len(agents)} agents",
         "results": results,
     }
 
