@@ -2394,13 +2394,15 @@ function getThreadMessages(agentId) {
   return dmThreads[agentId];
 }
 
+// Your fixed owner identity — matches owner_id set during agent creation.
+const MY_OWNER_ID = 'owner-1';
+
 function isOwnerConversation(agent) {
-  // You own an agent if its owner_id matches the first agent's owner_id (your identity).
-  // Falls back to the original agents[0] check if owner_id is not set.
-  if (agents[0] && agents[0].owner_id && agent && agent.owner_id) {
-    return agent.owner_id === agents[0].owner_id;
+  // You own an agent if its owner_id matches your fixed identity.
+  if (agent && agent.owner_id) {
+    return agent.owner_id === MY_OWNER_ID;
   }
-  return Boolean(agents[0] && agent && agent.id === agents[0].id);
+  return false;
 }
 
 function getTrustContextForAgent(agent) {
@@ -2497,9 +2499,9 @@ async function sendDm() {
 
   const thread = getThreadMessages(agent.id);
   const myId = getFrontendUserId();
-  // Send the agent's owner_id when we are the owner (agents[0]), so the server
+  // Send MY_OWNER_ID when we are the owner, so the server
   // can match user_id == owner_id and derive trust_context = "owner".
-  const effectiveUserId = isOwnerConversation(agent) && agent.owner_id ? agent.owner_id : myId;
+  const effectiveUserId = isOwnerConversation(agent) ? MY_OWNER_ID : myId;
   const now = new Date().toISOString();
   thread.push({
     text,

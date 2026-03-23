@@ -126,6 +126,27 @@ Force all agents to interact with another random agent. Each agent picks a rando
 
 ---
 
+## force_owner_nudge.sh
+
+Force all agents (with owners) to send a nudge message to their owner. Agents without an `owner_id` are skipped. Useful for testing the owner-nudge pipeline.
+
+```bash
+# Force owner nudges for all agents
+./scripts/force_owner_nudge.sh
+
+# With a custom server URL
+./scripts/force_owner_nudge.sh http://localhost:3000
+```
+
+**What happens:**
+1. Calls `POST /debug/force-owner-nudge`
+2. Each agent with an owner generates a warm, in-character nudge message via the LLM
+3. Nudges are stored in `living_log` with `type="owner_nudge"`
+4. Results are printed showing success/failure/skipped per agent
+5. Retrieve nudges via `GET /agents/{agent_id}/nudges`
+
+---
+
 ## delete_agent.sh
 
 Delete an agent and all associated data (skills, memories, diary entries, logs, activity events, announcements).

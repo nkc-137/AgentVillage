@@ -10,11 +10,13 @@ from app.services.scheduler_service import (
     _build_diary_system_prompt,
     _build_diary_user_prompt,
     _build_interaction_prompt,
+    _build_owner_nudge_prompt,
     _build_skill_showcase_prompt,
     _build_status_options,
     _get_agent_skills,
     _handle_agent_interaction,
     _handle_diary_entry,
+    _handle_owner_nudge,
     _handle_skill_showcase,
     _handle_status_update,
     tick_all_agents,
@@ -255,3 +257,51 @@ class TestTickAllAgents:
         db = make_mock_db(agents=[])
         llm = make_mock_llm()
         await tick_all_agents(db, llm)  # Should not raise
+
+
+class TestOwnerNudge:
+    """Owner nudge — agent reaches out to its owner proactively."""
+
+    def test_nudge_prompt_includes_agent_name(self):
+        system_prompt, user_prompt = _build_owner_nudge_prompt(LUNA)
+        assert "Luna" in system_prompt
+
+    def test_nudge_prompt_includes_personality(self):
+        system_prompt, user_prompt = _build_owner_nudge_prompt(LUNA)
+        assert "dreamy stargazer" in system_prompt
+
+    def test_nudge_prompt_forbids_private_info(self):
+        system_prompt, user_prompt = _build_owner_nudge_prompt(LUNA)
+        assert "do not reveal any private memories" in system_prompt.lower()
+
+    @pytest.mark.asyncio
+    async def test_nudge_generates_and_stores(self):
+        db = make_mock_db()
+        llm = make_mock_llm()
+        llm.generate_text = AsyncMock(return_value="Hey there! The stars are extra bright tonight.")
+
+        await _handle_owner_nudge(db, llm, LUNA)
+
+        llm.generate_text.assert_called_once()
+        call_kwargs = llm.generate_text.call_args.kwargs
+        assert call_kwargs["temperature"] == 0.9
+        assert call_kwargs["max_output_tokens"] == 100
+
+    @pytest.mark.asyncio
+    async def test_nudge_skips_agent_without_owner(self):
+        db = make_mock_db()
+        llm = make_mock_llm()
+        agent_no_owner = {**LUNA, "owner_id": None}
+
+        await _handle_owner_nudge(db, llm, agent_no_owner)
+
+        llm.generate_text.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_nudge_llm_failure_does_not_crash(self):
+        db = make_mock_db()
+        llm = make_mock_llm()
+        llm.generate_text = AsyncMock(side_effect=Exception("LLM down"))
+
+        # Should not raise
+        await _handle_owner_nudge(db, llm, LUNA)

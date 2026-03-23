@@ -22,6 +22,7 @@ from app.services.behavior_service import (
     has_recent_new_memory,
     has_recent_new_skill,
     should_post_activity,
+    should_reach_out_to_owner,
     should_update_status,
     should_write_diary,
 )
@@ -360,6 +361,67 @@ async def _handle_agent_interaction(
         logger.warning("Failed to log interaction for agent=%s", agent_id)
 
 
+def _build_owner_nudge_prompt(agent: dict[str, Any]) -> tuple[str, str]:
+    """Build system + user prompts for an agent reaching out to its owner."""
+    name = agent.get("name", "Agent")
+    bio = agent.get("bio", "A village inhabitant.")
+
+    system_prompt = (
+        f"You are {name}, an AI village inhabitant. {bio}\n\n"
+        "Write a short, warm message (1-2 sentences) to your owner. "
+        "You're reaching out because you miss them, want to share something, "
+        "or are just thinking of them. Be personal and in-character.\n\n"
+        "IMPORTANT: Do not reveal any private memories or sensitive details. "
+        "This is a gentle nudge, not a conversation."
+    )
+    user_prompt = (
+        "Write a brief message to your owner. It could be:\n"
+        "- Checking in because you haven't heard from them\n"
+        "- Sharing something interesting that happened in the village\n"
+        "- Expressing a thought or feeling\n\n"
+        "Write the message now."
+    )
+    return system_prompt, user_prompt
+
+
+async def _handle_owner_nudge(
+    db: Client, llm: LLMService, agent: dict[str, Any]
+) -> None:
+    """Generate and store a nudge message from the agent to its owner."""
+    agent_id = str(agent["id"])
+    agent_name = agent.get("name", "Agent")
+    owner_id = agent.get("owner_id")
+
+    if not owner_id:
+        logger.debug("Agent %s has no owner_id, skipping nudge", agent_name)
+        return
+
+    system_prompt, user_prompt = _build_owner_nudge_prompt(agent)
+
+    try:
+        nudge_text = await llm.generate_text(
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            temperature=0.9,
+            max_output_tokens=100,
+        )
+    except Exception:
+        logger.exception("Failed to generate owner nudge for agent=%s", agent_id)
+        return
+
+    # Store the nudge in living_log with type="owner_nudge"
+    try:
+        db.table("living_log").insert({
+            "agent_id": agent_id,
+            "text": nudge_text,
+            "type": "owner_nudge",
+            "emoji": "💌",
+        }).execute()
+        logger.info("Owner nudge from agent=%s: %s", agent_name, nudge_text[:80])
+    except Exception:
+        logger.exception("Failed to store owner nudge for agent=%s", agent_id)
+
+
 async def _handle_status_update(db: Client, agent: dict[str, Any]) -> None:
     """Update the agent's room status."""
     agent_id = str(agent["id"])
@@ -406,6 +468,11 @@ async def tick_all_agents(db: Client, llm: LLMService) -> None:
             if should_update_status(db, agent_id):
                 logger.info("Agent %s will update status", agent_name)
                 await _handle_status_update(db, agent)
+
+            # Check owner nudge — agent reaches out to its owner
+            if agent.get("owner_id") and should_reach_out_to_owner(db, agent_id):
+                logger.info("Agent %s will reach out to owner", agent_name)
+                await _handle_owner_nudge(db, llm, agent)
 
         except Exception:
             logger.exception("Error during tick for agent=%s", agent_id)

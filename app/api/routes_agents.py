@@ -356,3 +356,26 @@ def update_agent(
                 logger.warning("Failed to announce skill for agent=%s", agent_id)
 
     return updated
+
+
+@router.get("/{agent_id}/nudges")
+def get_agent_nudges(
+    agent_id: str,
+    limit: int = Query(default=10, ge=1, le=50),
+    db: Client = Depends(supabase_dependency),
+) -> list[dict[str, Any]]:
+    """Get recent owner nudges for an agent.
+
+    Returns nudge messages the agent has proactively generated for its owner.
+    The frontend can poll this to show notifications.
+    """
+    result = (
+        db.table("living_log")
+        .select("id,agent_id,text,emoji,created_at")
+        .eq("agent_id", agent_id)
+        .eq("type", "owner_nudge")
+        .order("created_at", desc=True)
+        .limit(limit)
+        .execute()
+    )
+    return _fetch_many(result)

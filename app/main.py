@@ -48,6 +48,7 @@ except Exception:
 try:
     from app.services.scheduler_service import (
         _handle_diary_entry,
+        _handle_owner_nudge,
         _handle_skill_showcase,
         _handle_agent_interaction,
         start_scheduler,
@@ -55,6 +56,7 @@ try:
     )
 except Exception:
     _handle_diary_entry = None
+    _handle_owner_nudge = None
     _handle_skill_showcase = None
     _handle_agent_interaction = None
     start_scheduler = None
@@ -251,6 +253,43 @@ async def force_agent_interactions() -> dict[str, Any]:
     return {
         "status": "ok",
         "message": f"Forced interactions for {len(agents)} agents",
+        "results": results,
+    }
+
+
+@app.post("/debug/force-owner-nudge")
+async def force_owner_nudge() -> dict[str, Any]:
+    """Force ALL agents (with owners) to send a nudge to their owner. Testing only."""
+    if (
+        _handle_owner_nudge is None
+        or get_supabase_client is None
+        or get_llm_service is None
+    ):
+        return {"status": "error", "message": "Dependencies not available"}
+
+    from app.services.behavior_service import get_all_agents
+
+    db = get_supabase_client()
+    llm = get_llm_service()
+    agents = get_all_agents(db)
+
+    results: list[dict[str, str]] = []
+    for agent in agents:
+        agent_id = str(agent["id"])
+        agent_name = agent.get("name", "Agent")
+        if not agent.get("owner_id"):
+            results.append({"agent": agent_name, "status": "skipped (no owner)"})
+            continue
+        try:
+            await _handle_owner_nudge(db, llm, agent)
+            results.append({"agent": agent_name, "status": "ok"})
+        except Exception as exc:
+            logger.exception("Force owner nudge failed for agent=%s", agent_id)
+            results.append({"agent": agent_name, "status": f"error: {exc}"})
+
+    return {
+        "status": "ok",
+        "message": f"Forced owner nudges for {len(agents)} agents",
         "results": results,
     }
 

@@ -68,7 +68,7 @@ class TestStrangerSystemPrompt:
 
     def test_warns_against_revealing_private_info(self):
         prompt = _build_stranger_system_prompt(LUNA, [])
-        assert "never reveal private information" in prompt.lower()
+        assert "never reveal owner info" in prompt.lower()
 
     def test_mentions_stranger_context(self):
         prompt = _build_stranger_system_prompt(LUNA, [])
@@ -219,7 +219,7 @@ class TestMessageEndpointTrustBoundary:
         assert "November 1" not in system_prompt
         assert "hiking" not in system_prompt
         # But it should have the privacy warning
-        assert "never reveal private information" in system_prompt.lower()
+        assert "never reveal owner info" in system_prompt.lower()
 
     def test_wrong_owner_gets_stranger_context(self, client, mock_llm):
         """User who owns Bolt (owner-2) should be treated as stranger for Luna."""

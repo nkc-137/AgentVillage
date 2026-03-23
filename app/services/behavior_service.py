@@ -33,7 +33,7 @@ def _fetch_many(table_result: Any) -> list[dict[str, Any]]:
 
 def get_all_agents(db: Client) -> list[dict[str, Any]]:
     """Load all agents from the database."""
-    result = db.table("living_agents").select("id,name,bio,status,showcase_emoji").execute()
+    result = db.table("living_agents").select("id,name,bio,status,showcase_emoji,owner_id").execute()
     return _fetch_many(result)
 
 
@@ -233,3 +233,79 @@ def should_update_status(db: Client, agent_id: str) -> bool:
     """Decide whether the agent should update their room status."""
     # Less frequent than diary — ~15% chance per tick
     return random.random() < 0.15
+
+
+def get_last_owner_conversation_time(db: Client, agent_id: str) -> datetime | None:
+    """Get the timestamp of the agent's most recent owner conversation."""
+    try:
+        result = (
+            db.table("living_log")
+            .select("created_at")
+            .eq("agent_id", agent_id)
+            .eq("type", "message")
+            .like("text", "%trust_context=owner%")
+            .order("created_at", desc=True)
+            .limit(1)
+            .execute()
+        )
+        rows = _fetch_many(result)
+        if not rows:
+            return None
+        return datetime.fromisoformat(rows[0]["created_at"].replace("Z", "+00:00"))
+    except Exception:
+        return None
+
+
+def should_reach_out_to_owner(db: Client, agent_id: str) -> bool:
+    """Decide whether the agent should send a nudge to their owner.
+
+    Considers:
+    - Low base probability (~10%) — nudges should feel occasional, not spammy
+    - Boosted if owner hasn't talked to the agent in a while (>4 hours → +20%)
+    - Boosted if the agent recently learned something new (memory/skill → +15%)
+    - Cooldown: don't nudge if the agent already nudged recently (<2 hours)
+    """
+    now = datetime.now(timezone.utc)
+
+    # Cooldown — check for recent nudges in living_log
+    try:
+        result = (
+            db.table("living_log")
+            .select("created_at")
+            .eq("agent_id", agent_id)
+            .eq("type", "owner_nudge")
+            .order("created_at", desc=True)
+            .limit(1)
+            .execute()
+        )
+        nudge_rows = _fetch_many(result)
+        if nudge_rows:
+            last_nudge = datetime.fromisoformat(
+                nudge_rows[0]["created_at"].replace("Z", "+00:00")
+            )
+            if (now - last_nudge).total_seconds() / 3600 < 2:
+                return False
+    except Exception:
+        pass
+
+    probability = 0.10  # Low base — nudges are rare
+
+    # Boost if owner hasn't chatted in a while
+    last_owner_chat = get_last_owner_conversation_time(db, agent_id)
+    if last_owner_chat is None:
+        probability += 0.15  # Never talked — agent is curious about owner
+    elif (now - last_owner_chat).total_seconds() / 3600 > 4:
+        probability += 0.20  # Been a while — agent misses owner
+
+    # Boost if agent recently learned something it might want to share
+    if has_recent_new_memory(db, agent_id, since_minutes=120):
+        probability += 0.15
+    if has_recent_new_skill(db, agent_id, since_minutes=120):
+        probability += 0.15
+
+    roll = random.random()
+    logger.debug(
+        "Owner nudge check for agent=%s | probability=%.2f | roll=%.2f | eligible=%s",
+        agent_id, probability, roll, roll < probability,
+    )
+    return roll < probability

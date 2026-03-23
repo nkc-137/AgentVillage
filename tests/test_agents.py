@@ -158,3 +158,15 @@ class TestDeleteAgent:
     def test_delete_nonexistent_agent_returns_404(self, client):
         resp = client.delete("/agents/NonExistent")
         assert resp.status_code == 404
+
+
+class TestNudgesEndpoint:
+    def test_get_nudges_returns_list(self, client):
+        resp = client.get(f"/agents/{LUNA['id']}/nudges")
+        assert resp.status_code == 200
+        assert isinstance(resp.json(), list)
+
+    def test_get_nudges_for_nonexistent_agent_returns_empty(self, client):
+        resp = client.get("/agents/nonexistent-id/nudges")
+        assert resp.status_code == 200
+        assert resp.json() == []
