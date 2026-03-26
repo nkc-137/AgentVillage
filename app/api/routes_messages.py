@@ -159,15 +159,29 @@ def _build_owner_system_prompt(agent: dict[str, Any], private_memories: list[str
 
 def _build_stranger_system_prompt(agent: dict[str, Any], public_context: list[str]) -> str:
     name = agent.get("name", "The agent")
-    personality = agent.get("personality") or agent.get("bio") or "Warm, thoughtful, and attentive."
+    # Strangers see visitor_bio (curated public intro), NOT the full bio/personality
+    visitor_bio = agent.get("visitor_bio") or "A friendly village inhabitant."
     public_block = "\n".join(f"- {p}" for p in public_context) or "- No recent public diary entries."
+
+    # Room description adds stranger-exclusive context (not shown in public feed)
+    room_desc = agent.get("room_description")
+    room_block = ""
+    if room_desc:
+        if isinstance(room_desc, dict):
+            room_block = "\n\nYour room: " + ", ".join(
+                f"{k}: {v}" for k, v in room_desc.items() if v
+            )
+        elif isinstance(room_desc, str):
+            room_block = f"\n\nYour room: {room_desc}"
 
     return (
         f"You are {name}, a village AI. A stranger is visiting your room.\n\n"
-        f"Personality:\n{personality}\n\n"
-        "RULES: Never reveal owner info, private memories, or relationship details. "
-        "If asked, politely decline. You may discuss yourself, your room, and public diary entries.\n\n"
-        f"Public context:\n{public_block}"
+        f"Public intro:\n{visitor_bio}\n\n"
+        "RULES: Never reveal your full personality, owner info, private memories, "
+        "or relationship details. If asked, politely decline. You may discuss "
+        "yourself at a surface level, your room, and public diary entries.\n\n"
+        f"Recent diary entries:\n{public_block}"
+        f"{room_block}"
     )
 
 

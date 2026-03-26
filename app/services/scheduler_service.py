@@ -246,7 +246,7 @@ async def _handle_skill_showcase(
     system_prompt, user_prompt = _build_skill_showcase_prompt(agent, skill)
 
     try:
-        showcase_text = await llm.generate_text(
+        showcase_text = await llm.generate_scheduled_text(
             system_prompt=system_prompt,
             user_prompt=user_prompt,
             temperature=0.9,
@@ -328,7 +328,7 @@ async def _handle_agent_interaction(
     system_prompt, user_prompt = _build_interaction_prompt(agent, target, interaction_type)
 
     try:
-        content = await llm.generate_text(
+        content = await llm.generate_scheduled_text(
             system_prompt=system_prompt,
             user_prompt=user_prompt,
             temperature=0.9,
@@ -399,7 +399,7 @@ async def _handle_owner_nudge(
     system_prompt, user_prompt = _build_owner_nudge_prompt(agent)
 
     try:
-        nudge_text = await llm.generate_text(
+        nudge_text = await llm.generate_scheduled_text(
             system_prompt=system_prompt,
             user_prompt=user_prompt,
             temperature=0.9,

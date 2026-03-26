@@ -202,6 +202,7 @@ def make_mock_llm(
     llm.generate_agent_reply = AsyncMock(return_value=reply)
     llm.generate_public_diary_entry = AsyncMock(return_value=diary_entry)
     llm.generate_text = AsyncMock(return_value='{"bio": "A test agent"}')
+    llm.generate_scheduled_text = AsyncMock(return_value="Scheduled text output.")
     llm.classify_memory_candidate = AsyncMock(
         return_value=classify_result or {"should_store": False, "summary": ""}
     )

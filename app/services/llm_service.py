@@ -12,6 +12,7 @@ Responsibilities:
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 from openai import AsyncOpenAI
@@ -20,9 +21,21 @@ from app.services.logging_service import get_logger
 
 logger = get_logger("llm_service")
 
+# Default concurrency cap for background (scheduler) LLM calls.
+# Chat calls bypass this entirely so they're never blocked by scheduler work.
+DEFAULT_SCHEDULER_CONCURRENCY = 5
+
 
 class LLMService:
-    """Thin wrapper around the OpenAI client."""
+    """Thin wrapper around the OpenAI client.
+
+    Provides two call paths:
+    - **Chat** (generate_agent_reply, classify_memory_candidate): no concurrency
+      limit — user-facing calls go straight to the LLM for lowest latency.
+    - **Scheduler** (generate_public_diary_entry, generate_scheduled_text): gated
+      by an asyncio.Semaphore so background work can't saturate the API and starve
+      chat requests.
+    """
 
     def __init__(
         self,
@@ -30,11 +43,13 @@ class LLMService:
         default_model: str = "gpt-4o-mini",
         temperature: float = 0.7,
         max_output_tokens: int = 300,
+        scheduler_concurrency: int = DEFAULT_SCHEDULER_CONCURRENCY,
     ) -> None:
         self.client = client
         self.default_model = default_model
         self.temperature = temperature
         self.max_output_tokens = max_output_tokens
+        self._scheduler_semaphore = asyncio.Semaphore(scheduler_concurrency)
 
     async def generate_text(
         self,
@@ -45,7 +60,11 @@ class LLMService:
         temperature: float | None = None,
         max_output_tokens: int | None = None,
     ) -> str:
-        """Generate text from the LLM using a system + user prompt."""
+        """Generate text from the LLM using a system + user prompt.
+
+        This is the unrestricted path — used by chat endpoints for lowest latency.
+        For scheduler/background calls, use generate_scheduled_text() instead.
+        """
         chosen_model = model or self.default_model
         chosen_temperature = (
             self.temperature if temperature is None else temperature
@@ -82,6 +101,35 @@ class LLMService:
         text = self._extract_response_text(response)
         return self._clean_text(text)
 
+    async def generate_scheduled_text(
+        self,
+        system_prompt: str,
+        user_prompt: str,
+        *,
+        model: str | None = None,
+        temperature: float | None = None,
+        max_output_tokens: int | None = None,
+    ) -> str:
+        """Generate text through the scheduler queue.
+
+        Identical to generate_text but acquires the scheduler semaphore first,
+        capping how many background LLM calls run concurrently. This ensures
+        chat calls (which bypass the semaphore) are never starved.
+        """
+        async with self._scheduler_semaphore:
+            logger.debug(
+                "Scheduler semaphore acquired (%d/%d slots in use)",
+                self._scheduler_semaphore._value,
+                DEFAULT_SCHEDULER_CONCURRENCY,
+            )
+            return await self.generate_text(
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
+                model=model,
+                temperature=temperature,
+                max_output_tokens=max_output_tokens,
+            )
+
     async def generate_agent_reply(
         self,
         *,
@@ -111,10 +159,10 @@ class LLMService:
         system_prompt: str,
         user_prompt: str,
     ) -> str:
-        """Generate a short public diary entry."""
+        """Generate a short public diary entry (scheduler queue)."""
         logger.info("Generating public diary entry | agent=%s", agent_name)
 
-        return await self.generate_text(
+        return await self.generate_scheduled_text(
             system_prompt=system_prompt,
             user_prompt=user_prompt,
             temperature=0.9,

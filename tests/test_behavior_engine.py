@@ -166,9 +166,14 @@ class TestShouldWriteDiary:
         db = _db_with_recent_signals(conversations=1, has_memory=True, has_skill=True)
         assert should_write_diary(db, "agent-1") is True
 
+    @patch("app.services.behavior_service.datetime")
     @patch("app.services.behavior_service.random")
-    def test_no_signals_uses_base_probability(self, mock_random):
+    def test_no_signals_uses_base_probability(self, mock_random, mock_dt):
         """Without any recent signals, base probability applies."""
+        # Pin to 10:00 UTC (outside evening boost window)
+        from datetime import datetime, timezone
+        mock_dt.now.return_value = datetime(2026, 3, 26, 10, 0, tzinfo=timezone.utc)
+        mock_dt.fromisoformat = datetime.fromisoformat
         # Roll above base 0.4 — should fail
         mock_random.random.return_value = 0.45
         db = _db_with_recent_signals(conversations=0, has_memory=False, has_skill=False)

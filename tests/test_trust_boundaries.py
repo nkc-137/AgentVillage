@@ -68,7 +68,8 @@ class TestStrangerSystemPrompt:
 
     def test_warns_against_revealing_private_info(self):
         prompt = _build_stranger_system_prompt(LUNA, [])
-        assert "never reveal owner info" in prompt.lower()
+        assert "never reveal" in prompt.lower()
+        assert "owner info" in prompt.lower()
 
     def test_mentions_stranger_context(self):
         prompt = _build_stranger_system_prompt(LUNA, [])
@@ -77,6 +78,30 @@ class TestStrangerSystemPrompt:
     def test_includes_agent_name(self):
         prompt = _build_stranger_system_prompt(LUNA, [])
         assert "Luna" in prompt
+
+    def test_uses_visitor_bio_not_full_bio(self):
+        """Stranger should see visitor_bio, NOT the full bio."""
+        prompt = _build_stranger_system_prompt(LUNA, [])
+        # visitor_bio should be present
+        assert LUNA["visitor_bio"] in prompt
+        # full bio should NOT be present
+        assert LUNA["bio"] not in prompt
+
+    def test_does_not_reveal_full_personality(self):
+        """Stranger prompt should warn against revealing full personality."""
+        prompt = _build_stranger_system_prompt(LUNA, [])
+        assert "never reveal your full personality" in prompt.lower()
+
+    def test_includes_room_description_if_present(self):
+        agent_with_room = {**LUNA, "room_description": {"theme": "celestial", "vibe": "cozy"}}
+        prompt = _build_stranger_system_prompt(agent_with_room, [])
+        assert "celestial" in prompt
+        assert "cozy" in prompt
+
+    def test_no_room_block_when_no_description(self):
+        agent_no_room = {**LUNA, "room_description": None}
+        prompt = _build_stranger_system_prompt(agent_no_room, [])
+        assert "Your room:" not in prompt
 
 
 # -----------------------------------------------------------------------
@@ -219,7 +244,10 @@ class TestMessageEndpointTrustBoundary:
         assert "November 1" not in system_prompt
         assert "hiking" not in system_prompt
         # But it should have the privacy warning
-        assert "never reveal owner info" in system_prompt.lower()
+        assert "never reveal" in system_prompt.lower()
+        # Stranger should see visitor_bio, NOT full bio
+        assert LUNA["visitor_bio"] in system_prompt
+        assert LUNA["bio"] not in system_prompt
 
     def test_wrong_owner_gets_stranger_context(self, client, mock_llm):
         """User who owns Bolt (owner-2) should be treated as stranger for Luna."""

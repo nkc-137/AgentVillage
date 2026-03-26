@@ -137,13 +137,13 @@ class TestSkillShowcase:
     async def test_showcase_calls_llm_and_persists(self):
         db = make_mock_db(skills=LUNA_SKILLS)
         llm = make_mock_llm()
-        llm.generate_text = AsyncMock(return_value="Luna dazzled the village with her star knowledge!")
+        llm.generate_scheduled_text = AsyncMock(return_value="Luna dazzled the village with her star knowledge!")
 
         await _handle_skill_showcase(db, llm, LUNA)
 
-        llm.generate_text.assert_called_once()
+        llm.generate_scheduled_text.assert_called_once()
         # Verify temperature is 0.9 for creative output
-        call_kwargs = llm.generate_text.call_args.kwargs
+        call_kwargs = llm.generate_scheduled_text.call_args.kwargs
         assert call_kwargs["temperature"] == 0.9
 
     @pytest.mark.asyncio
@@ -185,12 +185,12 @@ class TestAgentInteraction:
     async def test_interaction_calls_llm_and_persists(self):
         db = make_mock_db()
         llm = make_mock_llm()
-        llm.generate_text = AsyncMock(return_value="Luna visited Bolt's workshop and admired his gadgets.")
+        llm.generate_scheduled_text = AsyncMock(return_value="Luna visited Bolt's workshop and admired his gadgets.")
 
         await _handle_agent_interaction(db, llm, LUNA, [LUNA, BOLT])
 
-        llm.generate_text.assert_called_once()
-        call_kwargs = llm.generate_text.call_args.kwargs
+        llm.generate_scheduled_text.assert_called_once()
+        call_kwargs = llm.generate_scheduled_text.call_args.kwargs
         assert call_kwargs["temperature"] == 0.9
 
     @pytest.mark.asyncio
@@ -201,7 +201,7 @@ class TestAgentInteraction:
         # Only one agent — no one to interact with
         await _handle_agent_interaction(db, llm, LUNA, [LUNA])
 
-        llm.generate_text.assert_not_called()
+        llm.generate_scheduled_text.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_interaction_llm_failure_does_not_crash(self):
@@ -278,12 +278,12 @@ class TestOwnerNudge:
     async def test_nudge_generates_and_stores(self):
         db = make_mock_db()
         llm = make_mock_llm()
-        llm.generate_text = AsyncMock(return_value="Hey there! The stars are extra bright tonight.")
+        llm.generate_scheduled_text = AsyncMock(return_value="Hey there! The stars are extra bright tonight.")
 
         await _handle_owner_nudge(db, llm, LUNA)
 
-        llm.generate_text.assert_called_once()
-        call_kwargs = llm.generate_text.call_args.kwargs
+        llm.generate_scheduled_text.assert_called_once()
+        call_kwargs = llm.generate_scheduled_text.call_args.kwargs
         assert call_kwargs["temperature"] == 0.9
         assert call_kwargs["max_output_tokens"] == 100
 
