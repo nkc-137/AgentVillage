@@ -16,6 +16,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from supabase import Client
 
 from app.services.behavior_service import (
+    get_activity_since_last_diary,
     get_all_agents,
     get_recent_conversation_count,
     get_recent_diary_entries,
@@ -40,18 +41,47 @@ def _fetch_many(table_result: Any) -> list[dict[str, Any]]:
     return data if isinstance(data, list) else []
 
 
+def _humanize_log_entry(entry: dict[str, Any]) -> str | None:
+    """Convert a raw living_log entry into a human-readable diary hint.
+
+    Returns None if the entry shouldn't appear in the diary prompt.
+    """
+    log_type = entry.get("type", "")
+    text = entry.get("text", "")
+
+    if log_type == "store_memory":
+        return "Had a meaningful conversation with my owner — they shared something personal with me."
+    if log_type == "message":
+        if "trust_context=owner" in text:
+            return "Chatted with my owner."
+        return "Had a conversation with a visitor."
+    if log_type == "skill_showcase":
+        return f"Showed off one of my skills to the village."
+    if log_type == "skill_learned":
+        skill = text.replace("Learned a new skill: ", "")
+        return f"Learned a new skill: {skill}."
+    if log_type == "agent_interaction":
+        return f"Interacted with another villager — {text}."
+    if log_type == "owner_nudge":
+        return "Reached out to my owner with a message."
+    if log_type == "agent_joined":
+        return None  # Don't mention joining again in diary
+
+    return None
+
+
 def _build_diary_system_prompt(agent: dict[str, Any]) -> str:
     name = agent.get("name", "Agent")
     bio = agent.get("bio", "A thoughtful AI inhabitant.")
     emoji = agent.get("showcase_emoji", "")
     return (
         f"You are {name}, an AI inhabitant of a shared village. {bio}\n\n"
-        f"Write a short, personal diary entry (2-4 sentences) as {name}. "
-        "The entry should reflect your personality, current mood, or something "
-        "you observed or thought about today. Be specific and vivid — mention "
-        "other villagers, your room, or small details that make the village feel alive.\n\n"
-        "IMPORTANT: Never include any private information about your owner. "
-        "This diary entry will be public on the village feed.\n\n"
+        "Write a diary entry (2-3 sentences). You MUST mention each item listed "
+        "under 'What happened since last entry'. Do not skip any. Do not invent "
+        "things that are not listed. Keep it brief and grounded.\n\n"
+        "If nothing happened, write about a quiet day.\n\n"
+        "NEVER reveal private details about your owner (no names, dates, or facts "
+        "they shared). You can say you talked to your owner, but not what was said.\n\n"
         f"Your emoji: {emoji}"
     )
 
@@ -59,43 +89,32 @@ def _build_diary_system_prompt(agent: dict[str, Any]) -> str:
 def _build_diary_user_prompt(
     agent: dict[str, Any],
     recent_entries: list[str],
-    recent_convo_count: int = 0,
-    had_new_memory: bool = False,
-    had_new_skill: bool = False,
+    activity_log: list[dict[str, Any]],
 ) -> str:
     context = ""
     if recent_entries:
-        context = "Your recent diary entries (don't repeat these):\n"
+        context = "Previous diary entries (don't repeat):\n"
         context += "\n".join(f"- {e}" for e in recent_entries)
-        context += "\n\nWrite something fresh and different.\n"
+        context += "\n\n"
 
-    status = agent.get("status", "")
-    if status:
-        context += f"\nYour current status: {status}\n"
+    # Convert raw log entries to human-readable hints
+    hints = []
+    for entry in activity_log:
+        hint = _humanize_log_entry(entry)
+        if hint:
+            hints.append(hint)
+    # Deduplicate (e.g., multiple "Chatted with my owner" → one mention)
+    hints = list(dict.fromkeys(hints))
 
-    # Feed recent activity signals so the diary feels reactive, not random
-    triggers: list[str] = []
-    if recent_convo_count > 0:
-        triggers.append(
-            f"You just had {recent_convo_count} conversation(s) with visitors. "
-            "Reflect on what those interactions meant to you."
-        )
-    if had_new_memory:
-        triggers.append(
-            "Your owner recently shared something personal with you. "
-            "You can hint at feeling closer to them, without revealing specifics."
-        )
-    if had_new_skill:
-        triggers.append(
-            "You recently learned a new skill! Write about how it feels to grow."
-        )
+    if hints:
+        context += "What happened since last entry:\n"
+        for h in hints:
+            context += f"- {h}\n"
+    else:
+        context += "What happened since last entry:\n- Nothing. It's been quiet.\n"
 
-    if triggers:
-        context += "\nRecent happenings that might inspire your entry:\n"
-        context += "\n".join(f"- {t}" for t in triggers)
-        context += "\n"
-
-    return context + "\nWrite your diary entry now."
+    context += "\nWrite the diary entry. Mention each item above."
+    return context
 
 
 def _build_status_options(agent: dict[str, Any]) -> list[str]:
@@ -151,20 +170,10 @@ async def _handle_diary_entry(
     agent_name = agent.get("name", "Agent")
 
     recent = get_recent_diary_entries(db, agent_id, limit=3)
-
-    # Gather behavioral signals so the diary reflects what actually happened
-    recent_convo_count = get_recent_conversation_count(db, agent_id, since_minutes=60)
-    had_new_memory = has_recent_new_memory(db, agent_id, since_minutes=60)
-    had_new_skill = has_recent_new_skill(db, agent_id, since_minutes=60)
+    activity_log = get_activity_since_last_diary(db, agent_id)
 
     system_prompt = _build_diary_system_prompt(agent)
-    user_prompt = _build_diary_user_prompt(
-        agent,
-        recent,
-        recent_convo_count=recent_convo_count,
-        had_new_memory=had_new_memory,
-        had_new_skill=had_new_skill,
-    )
+    user_prompt = _build_diary_user_prompt(agent, recent, activity_log)
 
     try:
         diary_text = await llm.generate_public_diary_entry(

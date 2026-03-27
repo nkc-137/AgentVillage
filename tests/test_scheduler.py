@@ -42,42 +42,58 @@ class TestDiaryPromptBuilding:
 
     def test_diary_prompt_forbids_private_info(self):
         prompt = _build_diary_system_prompt(LUNA)
-        assert "never include any private information" in prompt.lower()
+        assert "never reveal private details" in prompt.lower()
 
     def test_diary_user_prompt_includes_recent_entries(self):
         recent = ["Spotted a nebula", "Stargazed with Bolt"]
-        prompt = _build_diary_user_prompt(LUNA, recent)
+        prompt = _build_diary_user_prompt(LUNA, recent, [])
         assert "Spotted a nebula" in prompt
-        assert "don't repeat these" in prompt.lower()
+        assert "don't repeat" in prompt.lower()
 
-    def test_diary_user_prompt_includes_status(self):
-        prompt = _build_diary_user_prompt(LUNA, [])
-        assert LUNA["status"] in prompt
+    def test_diary_user_prompt_empty_has_no_status(self):
+        """Status was removed from diary prompt — diary is activity-log-based."""
+        prompt = _build_diary_user_prompt(LUNA, [], [])
+        assert "quiet" in prompt.lower()
 
-    def test_diary_user_prompt_includes_conversation_context(self):
-        prompt = _build_diary_user_prompt(LUNA, [], recent_convo_count=3)
-        assert "3 conversation" in prompt
-        assert "visitors" in prompt.lower()
+    def test_diary_user_prompt_shows_owner_conversation(self):
+        log = [
+            {"text": "message handled | trust_context=owner | memory_written=True", "type": "message", "emoji": ""},
+            {"text": "Stored a new memory from owner", "type": "store_memory", "emoji": "🧠"},
+        ]
+        prompt = _build_diary_user_prompt(LUNA, [], log)
+        assert "meaningful conversation" in prompt.lower()
+        assert "owner" in prompt.lower()
 
-    def test_diary_user_prompt_includes_memory_context(self):
-        prompt = _build_diary_user_prompt(LUNA, [], had_new_memory=True)
-        assert "owner recently shared something personal" in prompt.lower()
+    def test_diary_user_prompt_shows_interaction(self):
+        log = [
+            {"text": "visit interaction with Bolt", "type": "agent_interaction", "emoji": "🤝"},
+        ]
+        prompt = _build_diary_user_prompt(LUNA, [], log)
+        assert "Bolt" in prompt
+        assert "villager" in prompt.lower()
 
-    def test_diary_user_prompt_includes_skill_context(self):
-        prompt = _build_diary_user_prompt(LUNA, [], had_new_skill=True)
-        assert "learned a new skill" in prompt.lower()
+    def test_diary_user_prompt_shows_skill_learned(self):
+        log = [
+            {"text": "Learned a new skill: Celestial observation", "type": "skill_learned", "emoji": "🎓"},
+        ]
+        prompt = _build_diary_user_prompt(LUNA, [], log)
+        assert "Celestial observation" in prompt
 
-    def test_diary_user_prompt_no_signals_no_happenings(self):
-        prompt = _build_diary_user_prompt(LUNA, [])
-        assert "recent happenings" not in prompt.lower()
+    def test_diary_user_prompt_empty_log_shows_quiet(self):
+        prompt = _build_diary_user_prompt(LUNA, [], [])
+        assert "quiet" in prompt.lower()
 
-    def test_diary_user_prompt_all_signals_combined(self):
-        prompt = _build_diary_user_prompt(
-            LUNA, [], recent_convo_count=2, had_new_memory=True, had_new_skill=True
-        )
-        assert "2 conversation" in prompt
-        assert "owner recently shared" in prompt.lower()
-        assert "learned a new skill" in prompt.lower()
+    def test_diary_user_prompt_deduplicates_hints(self):
+        log = [
+            {"text": "message handled | trust_context=owner", "type": "message", "emoji": ""},
+            {"text": "message handled | trust_context=owner", "type": "message", "emoji": ""},
+        ]
+        prompt = _build_diary_user_prompt(LUNA, [], log)
+        assert prompt.count("Chatted with my owner") == 1
+
+    def test_diary_user_prompt_requires_mentioning_items(self):
+        prompt = _build_diary_user_prompt(LUNA, [], [])
+        assert "mention each item" in prompt.lower()
 
 
 class TestStatusOptions:

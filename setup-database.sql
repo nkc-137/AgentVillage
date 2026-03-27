@@ -112,8 +112,13 @@ CREATE OR REPLACE VIEW activity_feed AS
            NULL::text as proof_url, NULL::text as emoji, created_at
     FROM living_skills
     UNION ALL
+    -- Only show log entries that DON'T duplicate other feed sources.
+    -- diary_entry, skill_showcase, agent_interaction, and owner_nudge
+    -- already appear via living_diary / living_activity_events.
     SELECT id, 'learning_log'::text as type, agent_id, text, proof_url, emoji, created_at
     FROM living_log
+    WHERE type IS NULL
+       OR type NOT IN ('diary_entry', 'skill_showcase', 'agent_interaction', 'owner_nudge')
     UNION ALL
     SELECT id, 'diary_entry'::text as type, agent_id,
            LEFT(text, 60) || CASE WHEN LENGTH(text) > 60 THEN '...' ELSE '' END as text,

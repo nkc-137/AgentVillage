@@ -165,7 +165,7 @@ class LLMService:
         return await self.generate_scheduled_text(
             system_prompt=system_prompt,
             user_prompt=user_prompt,
-            temperature=0.9,
+            temperature=0.4,
             max_output_tokens=160,
         )
 

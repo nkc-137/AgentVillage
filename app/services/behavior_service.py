@@ -89,6 +89,44 @@ def get_recent_diary_entries(db: Client, agent_id: str, limit: int = 3) -> list[
     return [r["text"] for r in rows if r.get("text")]
 
 
+def get_activity_since_last_diary(db: Client, agent_id: str) -> list[dict[str, Any]]:
+    """Fetch all living_log entries since the agent's last diary entry.
+
+    Returns log rows (text, type, emoji, created_at) ordered oldest-first,
+    so the diary prompt reads like a chronological activity summary.
+    Falls back to last 60 minutes if no diary exists yet.
+    """
+    last_diary = get_last_diary_time(db, agent_id)
+    if last_diary is not None:
+        cutoff = last_diary.isoformat()
+    else:
+        cutoff = (datetime.now(timezone.utc) - timedelta(minutes=60)).isoformat()
+
+    logger.info(
+        "Fetching activity log for agent=%s since cutoff=%s (last_diary=%s)",
+        agent_id, cutoff, last_diary,
+    )
+    try:
+        result = (
+            db.table("living_log")
+            .select("text,type,emoji,created_at")
+            .eq("agent_id", agent_id)
+            .gte("created_at", cutoff)
+            .order("created_at")
+            .limit(20)
+            .execute()
+        )
+        rows = _fetch_many(result)
+        # Filter out diary_entry type in Python to avoid Postgres NULL != value issue
+        rows = [r for r in rows if r.get("type") != "diary_entry"]
+        logger.info("Activity log for agent=%s: %d entries: %s", agent_id, len(rows),
+                     [r.get("text", "")[:50] for r in rows])
+        return rows
+    except Exception:
+        logger.exception("Failed to fetch activity log for agent=%s", agent_id)
+        return []
+
+
 def get_recent_conversation_count(db: Client, agent_id: str, since_minutes: int = 60) -> int:
     """Count how many conversations the agent has had recently.
 
@@ -111,19 +149,28 @@ def get_recent_conversation_count(db: Client, agent_id: str, since_minutes: int 
 
 
 def has_recent_new_memory(db: Client, agent_id: str, since_minutes: int = 60) -> bool:
-    """Check if the agent stored a new memory recently via living_log type='store_memory'.
+    """Check if the agent stored a new memory since its last diary entry.
 
     Uses living_log instead of living_memory so the diary code path
     never needs to touch the private memory table.
+
+    Once a diary entry is written, any memory stored before it is "consumed"
+    — this prevents every subsequent diary from repeating the trigger.
+    Falls back to a time-based window if no diary entry exists.
     """
-    cutoff = datetime.now(timezone.utc) - timedelta(minutes=since_minutes)
+    last_diary = get_last_diary_time(db, agent_id)
+    if last_diary is not None:
+        cutoff = last_diary.isoformat()
+    else:
+        cutoff = (datetime.now(timezone.utc) - timedelta(minutes=since_minutes)).isoformat()
+
     try:
         result = (
             db.table("living_log")
             .select("id")
             .eq("agent_id", agent_id)
             .eq("type", "store_memory")
-            .gte("created_at", cutoff.isoformat())
+            .gte("created_at", cutoff)
             .limit(1)
             .execute()
         )
@@ -134,15 +181,23 @@ def has_recent_new_memory(db: Client, agent_id: str, since_minutes: int = 60) ->
 
 
 def has_recent_new_skill(db: Client, agent_id: str, since_minutes: int = 60) -> bool:
-    """Check if the agent learned a new skill recently via living_log type='skill_learned'."""
-    cutoff = datetime.now(timezone.utc) - timedelta(minutes=since_minutes)
+    """Check if the agent learned a new skill since its last diary entry.
+
+    Same consumption logic as has_recent_new_memory — once a diary is written,
+    the skill trigger is consumed."""
+    last_diary = get_last_diary_time(db, agent_id)
+    if last_diary is not None:
+        cutoff = last_diary.isoformat()
+    else:
+        cutoff = (datetime.now(timezone.utc) - timedelta(minutes=since_minutes)).isoformat()
+
     try:
         result = (
             db.table("living_log")
             .select("id")
             .eq("agent_id", agent_id)
             .eq("type", "skill_learned")
-            .gte("created_at", cutoff.isoformat())
+            .gte("created_at", cutoff)
             .limit(1)
             .execute()
         )

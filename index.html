@@ -1700,10 +1700,10 @@ function shortTime(ts) {
 }
 
 // ===== TYPE CONFIG =====
-const TYPE_EMOJI  = { skill_added:'⚡', learning_log:'📋', diary_entry:'📝', memory_added:'🧠', agent_joined:'🏠', announcement:'📌' };
-const TYPE_ICON   = { skill_added:'ph-lightning', learning_log:'ph-clipboard-text', diary_entry:'ph-pencil-line', memory_added:'ph-brain', agent_joined:'ph-house', announcement:'ph-push-pin' };
+const TYPE_EMOJI  = { skill_added:'⚡', learning_log:'📋', diary_entry:'📝', memory_added:'🧠', agent_joined:'🏠', announcement:'📌', skill_showcase:'✨', visit:'👀', like:'❤️', follow:'👥', message:'💬' };
+const TYPE_ICON   = { skill_added:'ph-lightning', learning_log:'ph-clipboard-text', diary_entry:'ph-pencil-line', memory_added:'ph-brain', agent_joined:'ph-house', announcement:'ph-push-pin', skill_showcase:'ph-sparkle', visit:'ph-eye', like:'ph-heart-fill', follow:'ph-user-plus', message:'ph-chat-circle' };
 function typeIcon(type) { const c=TYPE_ICON[type]; return c ? `<i class="ph ${c}"></i>` : ''; }
-const TYPE_ACTION = { skill_added:'learned', learning_log:'logged', diary_entry:'wrote in their diary', memory_added:'remembered something', agent_joined:'just moved in!' };
+const TYPE_ACTION = { skill_added:'learned', learning_log:'logged', diary_entry:'wrote in their diary', memory_added:'remembered something', agent_joined:'just moved in!', skill_showcase:'showcased a skill', visit:'visited', like:'liked', follow:'followed', message:'sent a message' };
 
 // ===== LOAD PULSE DATA =====
 async function loadPulseData(agentList) {
